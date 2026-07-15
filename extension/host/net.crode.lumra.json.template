@@ -1,0 +1,9 @@
+{
+  "name": "net.crode.lumra",
+  "description": "Lumra native diagnosis core",
+  "path": "__LUMRA_BINARY_PATH__",
+  "type": "stdio",
+  "allowed_origins": [
+    "chrome-extension://__EXTENSION_ID__/"
+  ]
+}

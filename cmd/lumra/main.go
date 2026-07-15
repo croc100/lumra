@@ -9,24 +9,54 @@ import (
 	"os"
 	"time"
 
-	"github.com/croc100/lumra/internal/probe"
+	"github.com/croc100/lumra/internal/engine"
+	"github.com/croc100/lumra/internal/nativemsg"
 	"github.com/croc100/lumra/internal/verdict"
 )
 
 func usage() {
-	fmt.Fprintln(os.Stderr, "usage: lumra diagnose <domain> [--json]")
+	fmt.Fprintln(os.Stderr, "usage:\n"+
+		"  lumra diagnose <domain> [--json]\n"+
+		"  lumra install-host <extension-id>   (register the browser native host)\n"+
+		"  lumra nm-host                       (native-messaging host; run by the browser)")
 }
 
 func main() {
-	if len(os.Args) < 2 || os.Args[1] != "diagnose" {
+	if len(os.Args) < 2 {
 		usage()
 		os.Exit(2)
 	}
+	switch os.Args[1] {
+	case "diagnose":
+		runDiagnose(os.Args[2:])
+	case "nm-host":
+		// Speaks the browser native-messaging protocol on stdin/stdout.
+		if err := nativemsg.Serve(os.Stdin, os.Stdout); err != nil {
+			fmt.Fprintln(os.Stderr, "nm-host:", err)
+			os.Exit(1)
+		}
+	case "install-host":
+		if len(os.Args) < 3 {
+			usage()
+			os.Exit(2)
+		}
+		path, err := nativemsg.InstallHost(os.Args[2])
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "install-host:", err)
+			os.Exit(1)
+		}
+		fmt.Println("native host manifest written:", path)
+	default:
+		usage()
+		os.Exit(2)
+	}
+}
 
-	// Parse the rest permissively: --json may appear before or after the target.
+func runDiagnose(args []string) {
+	// Parse permissively: --json may appear before or after the target.
 	var target string
 	var jsonOut bool
-	for _, a := range os.Args[2:] {
+	for _, a := range args {
 		switch a {
 		case "--json", "-json":
 			jsonOut = true
@@ -44,7 +74,7 @@ func main() {
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 
-	v := diagnose(ctx, target)
+	v := engine.Diagnose(ctx, target)
 
 	if jsonOut {
 		enc := json.NewEncoder(os.Stdout)
@@ -53,52 +83,6 @@ func main() {
 		return
 	}
 	printVerdict(v)
-}
-
-// diagnose runs the available detectors and folds them into one verdict.
-// MVP: DNS analysis. TCP/RST, TLS/SNI, and TTL attribution land next.
-func diagnose(ctx context.Context, target string) *verdict.Verdict {
-	v := &verdict.Verdict{Target: target, Type: verdict.OK, Confidence: verdict.Low}
-
-	// Baseline connectivity first; its verdict is applied last so it can override.
-	control := probe.Control(ctx)
-
-	dns := probe.DNS(ctx, target)
-	dns.Contribute(v)
-
-	// Probe TLS/SNI and RST attribution against a ground-truth IP so a poisoned
-	// DNS answer does not send us to a sinkhole.
-	if ip := pickIP(dns); ip != "" {
-		probe.TLS(ctx, target, ip).Contribute(v)
-		probe.RST(ctx, ip).Contribute(v)
-	} else {
-		v.Add("TLS", verdict.Info, "skipped: no ground-truth IP to probe")
-	}
-
-	// Self-identifying block page (HTTP): names the operator when present.
-	probe.BlockPage(ctx, target).Contribute(v)
-
-	// Apply control last: a dead local network overrides target-specific findings.
-	control.Contribute(v)
-
-	if v.Type == verdict.OK {
-		v.Cause = "No interference detected by the probes run so far."
-	}
-	return v
-}
-
-// pickIP chooses the address to probe: DoH ground truth first, then any
-// plaintext answer as a fallback.
-func pickIP(dns *probe.DNSFinding) string {
-	if len(dns.GroundTruth) > 0 {
-		return dns.GroundTruth[0]
-	}
-	for _, src := range []string{"system", "public-cloudflare", "public-google"} {
-		if ips := dns.Answers[src]; len(ips) > 0 {
-			return ips[0]
-		}
-	}
-	return ""
 }
 
 func printVerdict(v *verdict.Verdict) {
@@ -129,10 +113,10 @@ func printVerdict(v *verdict.Verdict) {
 func mark(o verdict.Outcome) string {
 	switch o {
 	case verdict.Pass:
-		return "✓" // ✓
+		return "✓"
 	case verdict.Fail:
-		return "✗" // ✗
+		return "✗"
 	default:
-		return "ⓘ" // ⓘ
+		return "ⓘ"
 	}
 }

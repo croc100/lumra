@@ -1,0 +1,51 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8" />
+<style>
+  :root { color-scheme: light dark; }
+  body {
+    width: 340px; margin: 0; padding: 14px 16px;
+    font: 13px/1.45 -apple-system, Segoe UI, Roboto, sans-serif;
+  }
+  h1 { font-size: 14px; margin: 0 0 2px; display: flex; align-items: center; gap: 6px; }
+  h1 .dot { width: 8px; height: 8px; border-radius: 2px; background: #22dd77; }
+  .target { color: #888; font-size: 12px; margin-bottom: 12px; word-break: break-all; }
+  button {
+    width: 100%; padding: 8px; border: 0; border-radius: 4px; cursor: pointer;
+    background: #2563eb; color: #fff; font-size: 13px; font-weight: 600;
+  }
+  button:disabled { opacity: .6; cursor: default; }
+  .verdict { margin-top: 14px; display: none; }
+  .type { font-size: 15px; font-weight: 700; }
+  .type.ok { color: #16a34a; }
+  .type.bad { color: #dc2626; }
+  .attr { font-size: 12px; color: #888; margin: 2px 0 8px; }
+  .cause { font-size: 12px; margin-bottom: 10px; }
+  ul { list-style: none; margin: 0; padding: 0; }
+  li { font-size: 12px; padding: 2px 0; display: flex; gap: 6px; }
+  li .m { width: 14px; }
+  li.pass .m { color: #16a34a; }
+  li.fail .m { color: #dc2626; }
+  li.info .m { color: #888; }
+  li .probe { color: #888; min-width: 34px; }
+  .err { margin-top: 12px; font-size: 12px; color: #dc2626; }
+  .err code { background: rgba(127,127,127,.15); padding: 1px 4px; border-radius: 3px; }
+</style>
+</head>
+<body>
+  <h1><span class="dot"></span> Lumra</h1>
+  <div class="target" id="target">—</div>
+  <button id="run">Diagnose this site</button>
+
+  <div class="verdict" id="verdict">
+    <div class="type" id="type"></div>
+    <div class="attr" id="attr"></div>
+    <div class="cause" id="cause"></div>
+    <ul id="evidence"></ul>
+  </div>
+  <div class="err" id="err" style="display:none"></div>
+
+  <script src="popup.js"></script>
+</body>
+</html>

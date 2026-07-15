@@ -1,0 +1,14 @@
+{
+  "manifest_version": 3,
+  "name": "Lumra",
+  "version": "0.1.0",
+  "description": "Diagnose why a site is blocked, throttled, or tampered with — and where the interference originates.",
+  "permissions": ["nativeMessaging", "activeTab", "tabs", "webNavigation"],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Lumra — diagnose this site"
+  },
+  "background": {
+    "service_worker": "background.js"
+  }
+}
