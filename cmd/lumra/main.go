@@ -60,16 +60,23 @@ func main() {
 func diagnose(ctx context.Context, target string) *verdict.Verdict {
 	v := &verdict.Verdict{Target: target, Type: verdict.OK, Confidence: verdict.Low}
 
+	// Baseline connectivity first; its verdict is applied last so it can override.
+	control := probe.Control(ctx)
+
 	dns := probe.DNS(ctx, target)
 	dns.Contribute(v)
 
-	// Probe TLS/SNI against a ground-truth IP so a poisoned DNS answer does not
-	// send us to a sinkhole.
+	// Probe TLS/SNI and RST attribution against a ground-truth IP so a poisoned
+	// DNS answer does not send us to a sinkhole.
 	if ip := pickIP(dns); ip != "" {
 		probe.TLS(ctx, target, ip).Contribute(v)
+		probe.RST(ctx, ip).Contribute(v)
 	} else {
 		v.Add("TLS", verdict.Info, "skipped: no ground-truth IP to probe")
 	}
+
+	// Apply control last: a dead local network overrides target-specific findings.
+	control.Contribute(v)
 
 	if v.Type == verdict.OK {
 		v.Cause = "No interference detected by the probes run so far."
