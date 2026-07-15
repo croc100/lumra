@@ -1,1 +1,42 @@
-# lumra
+# Lumra
+
+**Take back control of your internet.** Lumra analyzes *why* your connection is
+being blocked, throttled, or tampered with — not just *that* it is.
+
+Lumra is CRODE's internet censorship & interference analysis SaaS. When a site
+won't load, a service is degraded, or DNS returns the wrong answer, Lumra
+diagnoses the **cause and type** of the interference: government-level blocking,
+DNS manipulation, TLS/SNI-based filtering, throttling, or ordinary outage.
+
+---
+
+## Why Lumra
+
+Most tools tell you a site is "down." Lumra tells you *how* and *by whom* it's
+being interfered with, with evidence:
+
+| Symptom | What Lumra distinguishes |
+|---------|--------------------------|
+| Site won't load | Real outage vs. state-level block vs. local network issue |
+| Wrong / no DNS answer | DNS poisoning / tampering vs. misconfiguration |
+| TLS handshake fails | SNI-based filtering vs. cert error vs. MITM |
+| Slow connection | Deliberate throttling vs. congestion |
+
+Lumra is the **analysis and visibility** counterpart to
+[Warren](https://github.com/croc100/warren) (censorship-resistant P2P network).
+It sits in CRODE's no-log, internet-freedom product line alongside Crovi and
+Litescope.
+
+---
+
+## Status
+
+Pre-release. Concept confirmed; detailed product spec is being defined. See
+[ROADMAP.md](ROADMAP.md) for the planned path from measurement engine to hosted
+SaaS.
+
+---
+
+## License
+
+TBD (CRODE no-log line).
