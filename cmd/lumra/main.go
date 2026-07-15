@@ -75,6 +75,9 @@ func diagnose(ctx context.Context, target string) *verdict.Verdict {
 		v.Add("TLS", verdict.Info, "skipped: no ground-truth IP to probe")
 	}
 
+	// Self-identifying block page (HTTP): names the operator when present.
+	probe.BlockPage(ctx, target).Contribute(v)
+
 	// Apply control last: a dead local network overrides target-specific findings.
 	control.Contribute(v)
 
