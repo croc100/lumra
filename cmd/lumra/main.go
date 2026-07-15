@@ -63,10 +63,32 @@ func diagnose(ctx context.Context, target string) *verdict.Verdict {
 	dns := probe.DNS(ctx, target)
 	dns.Contribute(v)
 
+	// Probe TLS/SNI against a ground-truth IP so a poisoned DNS answer does not
+	// send us to a sinkhole.
+	if ip := pickIP(dns); ip != "" {
+		probe.TLS(ctx, target, ip).Contribute(v)
+	} else {
+		v.Add("TLS", verdict.Info, "skipped: no ground-truth IP to probe")
+	}
+
 	if v.Type == verdict.OK {
 		v.Cause = "No interference detected by the probes run so far."
 	}
 	return v
+}
+
+// pickIP chooses the address to probe: DoH ground truth first, then any
+// plaintext answer as a fallback.
+func pickIP(dns *probe.DNSFinding) string {
+	if len(dns.GroundTruth) > 0 {
+		return dns.GroundTruth[0]
+	}
+	for _, src := range []string{"system", "public-cloudflare", "public-google"} {
+		if ips := dns.Answers[src]; len(ips) > 0 {
+			return ips[0]
+		}
+	}
+	return ""
 }
 
 func printVerdict(v *verdict.Verdict) {
