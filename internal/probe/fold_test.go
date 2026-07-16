@@ -69,6 +69,24 @@ func TestFoldPrecedence(t *testing.T) {
 			wantType: verdict.SNIFiltering, wantConf: verdict.High,
 		},
 		{
+			name: "tls mitm from a substituted certificate",
+			findings: []contributor{
+				cleanDNS(),
+				&TLSFinding{Domain: "t", IP: "93.184.216.34", Target: tlsAttempt{Connected: true, HandshakeOK: true, CertUntrusted: true, CertSubject: "proxy"}, Benign: tlsAttempt{Connected: true, HandshakeOK: true}},
+				cleanRST(), cleanRate(), upControl(),
+			},
+			wantType: verdict.TLSMITM, wantConf: verdict.Medium,
+		},
+		{
+			name: "ip-level block: reset on every sni",
+			findings: []contributor{
+				cleanDNS(),
+				&TLSFinding{Domain: "t", IP: "93.184.216.34", Target: tlsAttempt{Connected: true, Reset: true}, Benign: tlsAttempt{Connected: true, Reset: true}},
+				cleanRST(), cleanRate(), upControl(),
+			},
+			wantType: verdict.IPBlocking, wantConf: verdict.Medium,
+		},
+		{
 			name: "throttling wins only when nothing stronger fired",
 			findings: []contributor{
 				cleanDNS(), cleanTLS(), cleanRST(),
