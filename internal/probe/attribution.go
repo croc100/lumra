@@ -76,6 +76,11 @@ func (f *RSTFinding) Contribute(v *verdict.Verdict) {
 		return
 	}
 	if !f.Injected {
+		if f.ServerTTL > 0 {
+			v.Add("HOP", verdict.Info, fmt.Sprintf(
+				"destination ~%d hops (TTL %d); no injected RST observed", hopsAway(f.ServerTTL), f.ServerTTL))
+			return
+		}
 		v.Add("HOP", verdict.Info, "no injected RST observed")
 		return
 	}
