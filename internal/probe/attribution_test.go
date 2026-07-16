@@ -8,10 +8,10 @@ import (
 
 func TestHopsAway(t *testing.T) {
 	cases := map[uint8]int{
-		54:  10,  // Linux server, initial 64
-		118: 10,  // Windows server, initial 128
-		250: 5,   // appliance, initial 255
-		64:  0,   // right next to us
+		54:  10, // Linux server, initial 64
+		118: 10, // Windows server, initial 128
+		250: 5,  // appliance, initial 255
+		64:  0,  // right next to us
 	}
 	for ttl, want := range cases {
 		if got := hopsAway(ttl); got != want {

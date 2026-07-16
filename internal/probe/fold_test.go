@@ -31,9 +31,11 @@ func cleanDNS() *DNSFinding {
 func cleanTLS() *TLSFinding {
 	return &TLSFinding{Domain: "t", IP: "93.184.216.34", Target: tlsAttempt{Connected: true, HandshakeOK: true}}
 }
-func cleanRST() *RSTFinding      { return &RSTFinding{Available: false, Note: "unprivileged"} }
-func cleanRate() *ThrottleFinding { return &ThrottleFinding{Measured: true, Throttled: false, Note: "healthy"} }
-func upControl() *ControlFinding  { return &ControlFinding{Reachable: true, Reached: "1.1.1.1:443"} }
+func cleanRST() *RSTFinding { return &RSTFinding{Available: false, Note: "unprivileged"} }
+func cleanRate() *ThrottleFinding {
+	return &ThrottleFinding{Measured: true, Throttled: false, Note: "healthy"}
+}
+func upControl() *ControlFinding { return &ControlFinding{Reachable: true, Reached: "1.1.1.1:443"} }
 
 func TestFoldPrecedence(t *testing.T) {
 	tests := []struct {
