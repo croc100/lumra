@@ -11,6 +11,7 @@ import (
 
 	"github.com/croc100/lumra/internal/engine"
 	"github.com/croc100/lumra/internal/nativemsg"
+	"github.com/croc100/lumra/internal/report"
 	"github.com/croc100/lumra/internal/verdict"
 )
 
@@ -23,7 +24,7 @@ var (
 
 func usage() {
 	fmt.Fprintln(os.Stderr, "usage:\n"+
-		"  lumra diagnose <domain> [--json]\n"+
+		"  lumra diagnose <domain> [--json] [--report <file.html>]\n"+
 		"  lumra install-host <extension-id>   (register the browser native host)\n"+
 		"  lumra nm-host                       (native-messaging host; run by the browser)\n"+
 		"  lumra version")
@@ -71,16 +72,23 @@ func main() {
 }
 
 func runDiagnose(args []string) {
-	// Parse permissively: --json may appear before or after the target.
-	var target string
+	// Parse permissively: flags may appear before or after the target.
+	var target, reportPath string
 	var jsonOut bool
-	for _, a := range args {
-		switch a {
+	for i := 0; i < len(args); i++ {
+		switch args[i] {
 		case "--json", "-json":
 			jsonOut = true
+		case "--report", "-report":
+			if i+1 >= len(args) {
+				fmt.Fprintln(os.Stderr, "--report needs a file path")
+				os.Exit(2)
+			}
+			i++
+			reportPath = args[i]
 		default:
 			if target == "" {
-				target = a
+				target = args[i]
 			}
 		}
 	}
@@ -93,6 +101,19 @@ func runDiagnose(args []string) {
 	defer cancel()
 
 	v := engine.Diagnose(ctx, target)
+
+	if reportPath != "" {
+		html, err := report.HTML(v, time.Now())
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "report:", err)
+			os.Exit(1)
+		}
+		if err := os.WriteFile(reportPath, html, 0o644); err != nil {
+			fmt.Fprintln(os.Stderr, "report:", err)
+			os.Exit(1)
+		}
+		fmt.Fprintln(os.Stderr, "report written:", reportPath)
+	}
 
 	if jsonOut {
 		enc := json.NewEncoder(os.Stdout)
