@@ -26,6 +26,9 @@ func Diagnose(ctx context.Context, target string) *verdict.Verdict {
 	if ip := pickIP(dns); ip != "" {
 		probe.TLS(ctx, target, ip).Contribute(v)
 		probe.RST(ctx, ip).Contribute(v)
+		// Throughput last of the target-IP probes: only a weaker throttling
+		// signal, and it must not mask a hard block found above.
+		probe.Throttle(ctx, target, ip).Contribute(v)
 	} else {
 		v.Add("TLS", verdict.Info, "skipped: no ground-truth IP to probe")
 	}
