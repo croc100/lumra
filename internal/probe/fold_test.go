@@ -52,7 +52,7 @@ func TestFoldPrecedence(t *testing.T) {
 		{
 			name: "dns tampering with a live line",
 			findings: []contributor{
-				&DNSFinding{Domain: "t", Tampered: true, Suspicious: []string{"10.10.10.10"}, GroundTruth: []string{"93.184.216.34"}},
+				&DNSFinding{Domain: "t", Tampered: true, Reason: reasonBogon, Confidence: verdict.High, Suspicious: []string{"10.10.10.10"}, GroundTruth: []string{"93.184.216.34"}},
 				cleanTLS(), cleanRST(), cleanRate(), upControl(),
 			},
 			wantType: verdict.DNSTampering, wantConf: verdict.High,
@@ -110,7 +110,7 @@ func TestFoldPrecedence(t *testing.T) {
 		{
 			name: "dead local network overrides every target finding",
 			findings: []contributor{
-				&DNSFinding{Domain: "t", Tampered: true, Suspicious: []string{"10.10.10.10"}, GroundTruth: []string{"93.184.216.34"}},
+				&DNSFinding{Domain: "t", Tampered: true, Reason: reasonBogon, Confidence: verdict.High, Suspicious: []string{"10.10.10.10"}, GroundTruth: []string{"93.184.216.34"}},
 				cleanTLS(), cleanRST(),
 				&ThrottleFinding{Measured: true, Throttled: true, Note: "selective"},
 				&BlockPageFinding{Authority: "KCSC", Matched: "warning.or.kr"},
