@@ -1,0 +1,32 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Vet
+        run: go vet ./...
+      - name: Test
+        run: go test ./...
+      - name: Build
+        run: go build ./...
+      # Cross-compile the platform-specific capture backends so a break in the
+      # linux raw-socket path or the fallback is caught here, not at release.
+      - name: Cross build (darwin, windows)
+        run: |
+          GOOS=darwin  GOARCH=arm64 go build ./...
+          GOOS=windows GOARCH=amd64 go build ./...

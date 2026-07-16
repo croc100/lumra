@@ -14,11 +14,27 @@ import (
 	"github.com/croc100/lumra/internal/verdict"
 )
 
+// Build metadata, injected by the release pipeline via -ldflags -X.
+var (
+	version = "dev"
+	commit  = "none"
+	date    = "unknown"
+)
+
 func usage() {
 	fmt.Fprintln(os.Stderr, "usage:\n"+
 		"  lumra diagnose <domain> [--json]\n"+
 		"  lumra install-host <extension-id>   (register the browser native host)\n"+
-		"  lumra nm-host                       (native-messaging host; run by the browser)")
+		"  lumra nm-host                       (native-messaging host; run by the browser)\n"+
+		"  lumra version")
+}
+
+func printVersion() {
+	short := commit
+	if len(short) > 7 {
+		short = short[:7]
+	}
+	fmt.Printf("lumra %s (%s) %s\n", version, short, date)
 }
 
 func main() {
@@ -27,6 +43,8 @@ func main() {
 		os.Exit(2)
 	}
 	switch os.Args[1] {
+	case "version", "--version", "-v":
+		printVersion()
 	case "diagnose":
 		runDiagnose(os.Args[2:])
 	case "nm-host":

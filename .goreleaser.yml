@@ -1,0 +1,103 @@
+version: 2
+
+project_name: lumra
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: lumra
+    main: ./cmd/lumra
+    binary: lumra
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    ignore:
+      - goos: windows
+        goarch: arm64
+    ldflags:
+      - -s -w
+      - -X main.version={{.Version}}
+      - -X main.commit={{.Commit}}
+      - -X main.date={{.Date}}
+
+archives:
+  - id: default
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    format_overrides:
+      - goos: windows
+        formats: ["zip"]
+    files:
+      - README.md
+      - ROADMAP.md
+
+checksum:
+  name_template: "checksums.txt"
+
+changelog:
+  sort: asc
+  use: github
+  filters:
+    exclude:
+      - "^chore(deps)"
+      - "^ci:"
+      - "^docs:"
+  groups:
+    - title: "New Features"
+      regexp: "^feat"
+      order: 0
+    - title: "Bug Fixes"
+      regexp: "^fix"
+      order: 1
+    - title: "Other"
+      order: 999
+
+brews:
+  - name: lumra
+    homepage: "https://lumra.crode.net"
+    description: "Diagnose why a site is blocked, throttled, or tampered with — and where the interference originates"
+    license: "Elastic-2.0"
+    repository:
+      owner: croc100
+      name: homebrew-tap
+      token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
+    directory: Formula
+    test: |
+      system "#{bin}/lumra", "version"
+    install: |
+      bin.install "lumra"
+
+release:
+  github:
+    owner: croc100
+    name: lumra
+  name_template: "v{{ .Version }}"
+  footer: |
+    ## Install
+
+    **macOS / Linux (Homebrew)**
+    ```sh
+    brew install croc100/tap/lumra
+    ```
+
+    **Go install**
+    ```sh
+    go install github.com/croc100/lumra/cmd/lumra@latest
+    ```
+
+    **Direct download**
+    Grab the binary for your platform from the assets below.
+
+    > Deep RST/TTL attribution needs a raw socket: run elevated
+    > (`sudo` / `cap_net_raw`). Every other signal works unprivileged.
+
+    ---
+    **Site**: https://lumra.crode.net
+    **Roadmap**: https://github.com/croc100/lumra/blob/main/ROADMAP.md
