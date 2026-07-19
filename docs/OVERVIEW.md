@@ -5,8 +5,9 @@ being interfered with — and where the interference originates — from direct,
 active probing. It does not fetch or trust third-party block lists; the evidence
 identifies itself.
 
-Status: pre-implementation. This document is the build spec. See
-[ROADMAP.md](../ROADMAP.md) for phasing.
+Status: **v0.1.0 shipped** — the engine, CLI, and browser extension are live
+(`brew install croc100/tap/lumra`). This document remains the design spec; see
+[ROADMAP.md](../ROADMAP.md) for phasing and what's next (P2 hosted, P3 vantage).
 
 ---
 
@@ -169,13 +170,16 @@ Evidence:
 
 ## 7. Build Order (MVP → SaaS)
 
-1. **Core engine** — DNS + TCP/RST + TLS/SNI + control + TTL attribution
-2. **CLI** — `lumra diagnose <target>`, `--json`
-3. **Native Messaging host** + **browser extension** (standalone signals →
+1. ✅ **Core engine** — DNS + TCP/RST + TLS/SNI + MITM + IP-block + control +
+   throttling + real TTL attribution
+2. ✅ **CLI** — `lumra diagnose <target>`, `--json`, `--report`
+3. ✅ **Native Messaging host** + **browser extension** (standalone signals →
    full verdict when core present)
-4. **Hosted SaaS** — dashboard, scheduled monitoring, alerts (Litescope Cloud
+4. ⬜ **Hosted SaaS** — dashboard, scheduled monitoring, alerts (Litescope Cloud
    stack)
-5. **Cross-vantage network** — opt-in, privacy-preserving aggregates
+5. ⬜ **Cross-vantage network** — opt-in, privacy-preserving aggregates
+
+*(1–3 shipped in v0.1.0.)*
 
 Non-goals unchanged: Lumra diagnoses, it does not circumvent (that is Warren),
 and it does not log packet contents.

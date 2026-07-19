@@ -29,11 +29,31 @@ Litescope.
 
 ---
 
+## Install
+
+```sh
+brew install croc100/tap/lumra          # macOS / Linux
+go install github.com/croc100/lumra/cmd/lumra@latest
+```
+
+Then:
+
+```sh
+lumra diagnose example.com              # human-readable verdict
+lumra diagnose example.com --json       # machine-readable
+lumra diagnose example.com --report report.html   # shareable evidence page
+```
+
+Deep RST/TTL attribution needs a raw socket — run elevated (`sudo` /
+`cap_net_raw`) on Linux. Every other signal works unprivileged.
+
 ## Status
 
-Pre-release. Concept confirmed; detailed product spec is being defined. See
-[ROADMAP.md](ROADMAP.md) for the planned path from measurement engine to hosted
-SaaS.
+**v0.1.0 shipped.** The measurement engine and CLI are live: DNS
+(tampering / NXDOMAIN / duplicate-response injection), TLS/SNI filtering,
+TLS MITM, IP blocking, RST/TTL attribution, throttling, and self-identifying
+block pages — plus a browser extension. See [ROADMAP.md](ROADMAP.md) for the
+path to hosted monitoring (P2) and the opt-in vantage network (P3).
 
 ---
 
