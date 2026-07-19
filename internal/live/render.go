@@ -17,6 +17,8 @@ func badge(n verdict.Nature) string {
 		return "👁"
 	case verdict.NatureDegradation:
 		return "🐢"
+	case verdict.NatureFault:
+		return "💥"
 	case verdict.NatureNone:
 		return "✅"
 	default:
@@ -66,6 +68,9 @@ func RenderBoard(flows []Flow, now time.Time) string {
 		// Auto drill-down: once analyzed, the reason and the protective action
 		// Lumra took surface on their own — the user never has to select a row.
 		if f.Analyzed && f.Nature() != verdict.NatureNone {
+			if who := whoLine(f); who != "" {
+				fmt.Fprintf(&b, "        └ %s\n", who)
+			}
 			if f.DeepCause != "" {
 				fmt.Fprintf(&b, "        └ why: %s\n", truncate(oneLine(f.DeepCause), 66))
 			}
@@ -107,6 +112,28 @@ func statusNote(f Flow) string {
 		return "handshake OK"
 	default:
 		return fmt.Sprintf("%d attempt(s), awaiting handshake", f.Hits)
+	}
+}
+
+// whoLine answers the question the user actually asks — who did this — in plain
+// language from the diagnosed attribution: a named operator when the block infra
+// identifies itself, otherwise where on the path the interference originates.
+func whoLine(f Flow) string {
+	if f.DeepType == verdict.GenuineOutage {
+		return "who: no one — the site itself is down"
+	}
+	if f.Authority != "" {
+		return "who: " + f.Authority + " (block infrastructure identified itself)"
+	}
+	switch f.Attribution {
+	case verdict.AttrInNetwork:
+		return "who: in-network — the domestic path, before international transit"
+	case verdict.AttrDestination:
+		return "who: the destination server itself"
+	case verdict.AttrLocal:
+		return "who: your own network / device"
+	default:
+		return ""
 	}
 }
 

@@ -53,13 +53,15 @@ type Flow struct {
 	// Deep-analysis result, filled automatically by the Escalator so the board
 	// resolves from a passive guess to an authoritative verdict without the user
 	// asking. DeepType/Confidence are meaningful only when Analyzed is true.
-	Analyzed   bool
-	AnalyzedAt time.Time
-	DeepType   verdict.Type
-	Confidence verdict.Confidence
-	DeepCause  string // one-line reason, surfaced automatically (auto drill-down)
-	Action     Action // protective policy Lumra applied on its own (auto lever)
-	Enforced   string // summary of the applied enforcement, empty if none
+	Analyzed    bool
+	AnalyzedAt  time.Time
+	DeepType    verdict.Type
+	Confidence  verdict.Confidence
+	DeepCause   string              // one-line reason, surfaced automatically (auto drill-down)
+	Attribution verdict.Attribution // where the interference originates (who)
+	Authority   string              // named operator when the block infra self-identifies (e.g. KCSC)
+	Action      Action              // protective policy Lumra applied on its own (auto lever)
+	Enforced    string              // summary of the applied enforcement, empty if none
 }
 
 // Nature is the intuitive character of this flow. Once the Escalator has run a
@@ -140,6 +142,8 @@ func (t *Tracker) SetVerdict(domain string, v *verdict.Verdict, now time.Time) {
 		f.DeepType = v.Type
 		f.Confidence = v.Confidence
 		f.DeepCause = v.Cause
+		f.Attribution = v.Attribution
+		f.Authority = v.Authority
 		f.Action = Recommend(v.Type)
 	}
 }
