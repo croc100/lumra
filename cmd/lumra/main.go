@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/croc100/lumra/internal/engine"
+	"github.com/croc100/lumra/internal/live"
 	"github.com/croc100/lumra/internal/nativemsg"
 	"github.com/croc100/lumra/internal/report"
 	"github.com/croc100/lumra/internal/verdict"
@@ -29,6 +30,7 @@ func usage() {
 	fmt.Fprintln(os.Stderr, "usage:\n"+
 		"  lumra diagnose <domain> [--json] [--report <file.html>]\n"+
 		"  lumra watch <domain> [--interval 30s] [--json]\n"+
+		"  lumra live                          (passive cockpit: live board of every domain)\n"+
 		"  lumra install-host <extension-id>   (register the browser native host)\n"+
 		"  lumra nm-host                       (native-messaging host; run by the browser)\n"+
 		"  lumra version")
@@ -54,6 +56,8 @@ func main() {
 		runDiagnose(os.Args[2:])
 	case "watch":
 		runWatch(os.Args[2:])
+	case "live":
+		runLive(os.Args[2:])
 	case "nm-host":
 		// Speaks the browser native-messaging protocol on stdin/stdout.
 		if err := nativemsg.Serve(os.Stdin, os.Stdout); err != nil {
@@ -196,6 +200,58 @@ func printEvent(e watch.Event) {
 		fmt.Printf("[%s] ✓ recovered (was %s)\n", ts, e.Prev)
 	case watch.Changed:
 		fmt.Printf("[%s] ⟳ changed: %s → %s\n", ts, e.Prev, e.Type)
+	}
+}
+
+// runLive starts the passive tap and renders a continuously refreshed board of
+// every domain the host is talking to, each with a control/surveillance/clear
+// badge. It is Lumra's cockpit: the live view of your own internet.
+func runLive(args []string) {
+	interval := time.Second
+	for i := 0; i < len(args); i++ {
+		if args[i] == "--interval" && i+1 < len(args) {
+			if d, err := time.ParseDuration(args[i+1]); err == nil && d > 0 {
+				interval = d
+			}
+			i++
+		}
+	}
+
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	tracker := live.NewTracker()
+	tapErr := make(chan error, 1)
+	go func() { tapErr <- live.NewTap().Run(ctx, tracker.Observe) }()
+
+	// Give the tap a moment to fail fast on the common errors (no privilege,
+	// unsupported platform) so we print a clean message instead of a blank board.
+	select {
+	case err := <-tapErr:
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "lumra live:", err)
+			os.Exit(1)
+		}
+	case <-time.After(150 * time.Millisecond):
+	}
+
+	t := time.NewTicker(interval)
+	defer t.Stop()
+	for {
+		fmt.Print("\033[H\033[2J") // clear screen, cursor home
+		fmt.Print(live.RenderBoard(tracker.Snapshot(), time.Now()))
+		fmt.Println("\n  Ctrl-C to stop")
+		select {
+		case <-ctx.Done():
+			return
+		case err := <-tapErr:
+			if err != nil {
+				fmt.Fprintln(os.Stderr, "lumra live:", err)
+				os.Exit(1)
+			}
+			return
+		case <-t.C:
+		}
 	}
 }
 
