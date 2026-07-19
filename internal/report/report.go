@@ -64,6 +64,23 @@ var funcs = template.FuncMap{
 		}
 		return s
 	},
+	// nature renders the folded, user-facing character of the verdict.
+	"nature": func(n verdict.Nature) string {
+		switch n {
+		case verdict.NatureControl:
+			return "🚫 Blocked — access is being prevented"
+		case verdict.NatureSurveillance:
+			return "👁 Watched — the connection is being intercepted"
+		case verdict.NatureDegradation:
+			return "🐢 Slowed — this target is deliberately throttled"
+		case verdict.NatureFault:
+			return "⚠ Fault — a genuine outage, not interference"
+		case verdict.NatureNone:
+			return "✅ Clear — no interference detected"
+		default:
+			return "❔ Unclear — not enough signal"
+		}
+	},
 }
 
 var tmpl = template.Must(template.New("report").Funcs(funcs).Parse(`<!DOCTYPE html>
@@ -95,6 +112,7 @@ var tmpl = template.Must(template.New("report").Funcs(funcs).Parse(`<!DOCTYPE ht
     font-size:clamp(2.4rem,7vw,3.8rem);color:var(--white);margin:.6rem 0 1.1rem}
   .verdict.blocked{color:var(--fail)}
   .verdict.ok{color:var(--ok)}
+  .nature{font-family:var(--mono);font-size:.9rem;color:var(--sub);margin:-.4rem 0 .2rem}
   .meta{display:flex;flex-wrap:wrap;gap:.6rem;margin-bottom:2rem}
   .pill{font-family:var(--mono);font-size:.74rem;letter-spacing:.04em;color:var(--sub);
     border:1px solid var(--line2);border-radius:999px;padding:.34rem .8rem}
@@ -125,6 +143,7 @@ var tmpl = template.Must(template.New("report").Funcs(funcs).Parse(`<!DOCTYPE ht
     <p class="eyebrow">Lumra · Interference report</p>
     <p class="target">{{.V.Target}}</p>
     <h1 class="verdict {{if .Blocked}}blocked{{else if eq (printf "%s" .V.Type) "OK"}}ok{{end}}">{{.V.Type}}</h1>
+    <p class="nature">{{nature .V.Nature}}</p>
 
     <div class="meta">
       <span class="pill conf-{{.V.Confidence}}">confidence <b>{{.V.Confidence}}</b></span>

@@ -191,7 +191,7 @@ func printEvent(e watch.Event) {
 	case watch.Start:
 		fmt.Printf("[%s] ● baseline: %s\n", ts, e.Type)
 	case watch.Blocked:
-		fmt.Printf("[%s] ✗ BLOCKED: %s\n", ts, e.Type)
+		fmt.Printf("[%s] %s (%s)\n", ts, natureLine(e.Verdict.Nature), e.Type)
 	case watch.Recovered:
 		fmt.Printf("[%s] ✓ recovered (was %s)\n", ts, e.Prev)
 	case watch.Changed:
@@ -199,8 +199,28 @@ func printEvent(e watch.Event) {
 	}
 }
 
+// natureLine renders the folded, user-facing character of a verdict: what is
+// actually happening to the connection, in one intuitive sentence.
+func natureLine(n verdict.Nature) string {
+	switch n {
+	case verdict.NatureControl:
+		return "🚫 BLOCKED — your access is being prevented (censorship)"
+	case verdict.NatureSurveillance:
+		return "👁 WATCHED — your encrypted connection is being intercepted"
+	case verdict.NatureDegradation:
+		return "🐢 SLOWED — this target is being deliberately throttled"
+	case verdict.NatureFault:
+		return "⚠ FAULT — a genuine outage, not interference"
+	case verdict.NatureNone:
+		return "✅ CLEAR — no interference detected"
+	default:
+		return "❔ UNCLEAR — not enough signal to characterise"
+	}
+}
+
 func printVerdict(v *verdict.Verdict) {
 	fmt.Printf("Target:      %s\n", v.Target)
+	fmt.Printf("%s\n\n", natureLine(v.Nature))
 	fmt.Printf("Verdict:     %s", v.Type)
 	if v.Confidence != "" {
 		fmt.Printf("            (confidence: %s)", v.Confidence)

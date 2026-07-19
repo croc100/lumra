@@ -42,6 +42,8 @@ func Diagnose(ctx context.Context, target string) *verdict.Verdict {
 	if v.Type == verdict.OK {
 		v.Cause = "No interference detected by the probes run so far."
 	}
+	// Derive the user-facing character once the final Type is settled.
+	v.Nature = verdict.NatureOf(v.Type)
 	return v
 }
 
