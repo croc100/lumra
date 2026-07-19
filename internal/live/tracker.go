@@ -47,6 +47,7 @@ type Flow struct {
 	Confidence verdict.Confidence
 	DeepCause  string // one-line reason, surfaced automatically (auto drill-down)
 	Action     Action // protective policy Lumra applied on its own (auto lever)
+	Enforced   string // summary of the applied enforcement, empty if none
 }
 
 // Nature is the intuitive character of this flow. Once the Escalator has run a
@@ -119,6 +120,15 @@ func (t *Tracker) SetVerdict(domain string, v *verdict.Verdict, now time.Time) {
 		f.Confidence = v.Confidence
 		f.DeepCause = v.Cause
 		f.Action = Recommend(v.Type)
+	}
+}
+
+// SetEnforced records the summary of an applied enforcement lever for a domain.
+func (t *Tracker) SetEnforced(domain, summary string) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if f := t.flows[domain]; f != nil {
+		f.Enforced = summary
 	}
 }
 

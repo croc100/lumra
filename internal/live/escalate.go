@@ -20,6 +20,9 @@ type Diagnoser func(ctx context.Context, domain string) *verdict.Verdict
 type Escalator struct {
 	tracker  *Tracker
 	diagnose Diagnoser
+	// Enforcer, when set, applies the protective lever for actionable verdicts
+	// (e.g. writes a DoH override on DNS tampering). Nil leaves levers advisory.
+	Enforcer *Enforcer
 
 	// Interval is how often the board is swept for domains needing analysis.
 	Interval time.Duration
@@ -90,4 +93,11 @@ func (e *Escalator) analyze(ctx context.Context, domain string) {
 		return
 	}
 	e.tracker.SetVerdict(domain, v, time.Now())
+
+	// Automatic enforcement: apply the protective lever for this verdict, if any.
+	if e.Enforcer != nil {
+		if summary, ok := e.Enforcer.Enforce(dctx, domain, Recommend(v.Type)); ok {
+			e.tracker.SetEnforced(domain, summary)
+		}
+	}
 }

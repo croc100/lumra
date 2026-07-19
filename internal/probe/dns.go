@@ -160,6 +160,13 @@ func (f *DNSFinding) assess() {
 	sort.Strings(f.DivergentPublic)
 }
 
+// ResolveDoH returns tamper-resistant ground-truth IPv4 addresses for domain by
+// querying Cloudflare's DoH-JSON endpoint. It is the resolver the live cockpit's
+// enforcer uses to write a correct override when DNS tampering is detected.
+func ResolveDoH(ctx context.Context, domain string) ([]string, error) {
+	return dohLookup(ctx, "https://cloudflare-dns.com/dns-query", domain)
+}
+
 // lookup resolves domain via this source, returning IPv4 addresses.
 func (s dnsSource) lookup(ctx context.Context, domain string) ([]string, error) {
 	if s.doh != "" {

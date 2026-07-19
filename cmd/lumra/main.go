@@ -14,6 +14,7 @@ import (
 	"github.com/croc100/lumra/internal/engine"
 	"github.com/croc100/lumra/internal/live"
 	"github.com/croc100/lumra/internal/nativemsg"
+	"github.com/croc100/lumra/internal/probe"
 	"github.com/croc100/lumra/internal/report"
 	"github.com/croc100/lumra/internal/verdict"
 	"github.com/croc100/lumra/internal/watch"
@@ -224,10 +225,14 @@ func runLive(args []string) {
 	tapErr := make(chan error, 1)
 	go func() { tapErr <- live.NewTap().Run(ctx, tracker.Observe) }()
 
-	// Auto-escalation: the board resolves itself. Whenever the passive tap sees a
-	// domain with an outcome, a full diagnosis runs in the background and upgrades
-	// its badge to an authoritative verdict — no drilling, no knobs.
-	go live.NewEscalator(tracker, engine.Diagnose).Run(ctx)
+	// Auto-escalation + enforcement: the board resolves itself, and the protective
+	// lever is applied on its own. Whenever the passive tap sees a domain with an
+	// outcome, a full diagnosis runs in the background, upgrades its badge to an
+	// authoritative verdict, and (for a fixable verdict like DNS tampering) writes
+	// a DoH-verified override — no drilling, no knobs.
+	esc := live.NewEscalator(tracker, engine.Diagnose)
+	esc.Enforcer = live.NewEnforcer(live.DefaultDir(), probe.ResolveDoH)
+	go esc.Run(ctx)
 
 	// Give the tap a moment to fail fast on the common errors (no privilege,
 	// unsupported platform) so we print a clean message instead of a blank board.

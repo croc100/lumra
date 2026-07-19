@@ -72,6 +72,9 @@ func RenderBoard(flows []Flow, now time.Time) string {
 			if lbl := f.Action.Label(); lbl != "" {
 				fmt.Fprintf(&b, "        └ %s\n", lbl)
 			}
+			if f.Enforced != "" {
+				fmt.Fprintf(&b, "        └ applied %s\n", truncate(oneLine(f.Enforced), 60))
+			}
 		}
 	}
 	return b.String()
