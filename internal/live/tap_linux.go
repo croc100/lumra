@@ -51,9 +51,3 @@ func (linuxTap) Run(ctx context.Context, emit func(Event)) error {
 
 // htons converts a uint16 to network byte order for the AF_PACKET protocol field.
 func htons(v uint16) uint16 { return v<<8 | v>>8 }
-
-var errNeedPrivilege = &tapError{"passive tap needs raw-socket privilege (run elevated / cap_net_raw)"}
-
-type tapError struct{ msg string }
-
-func (e *tapError) Error() string { return e.msg }

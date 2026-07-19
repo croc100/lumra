@@ -1,4 +1,4 @@
-//go:build !linux
+//go:build !linux && !darwin && !windows
 
 package live
 
@@ -13,5 +13,5 @@ type unsupportedTap struct{}
 func newTap() Source { return unsupportedTap{} }
 
 func (unsupportedTap) Run(context.Context, func(Event)) error {
-	return fmt.Errorf("passive tap is implemented for Linux only (this host is %s)", runtime.GOOS)
+	return fmt.Errorf("passive tap is not implemented for %s; feed packets via TunSource instead", runtime.GOOS)
 }
