@@ -51,6 +51,44 @@ const (
 	tlsVersion13 = 0x0304
 )
 
+// Row is a rendered board entry as a plain data record, for non-text UIs — a
+// mobile app, a web dashboard, a JSON feed. It is the same information the text
+// board shows, pre-resolved so the client only lays it out.
+type Row struct {
+	Domain   string `json:"domain"`
+	Nature   string `json:"nature"` // control | surveillance | degradation | fault | none | unknown
+	Badge    string `json:"badge"`  // status glyph
+	TLS      string `json:"tls"`    // negotiated TLS version label
+	Status   string `json:"status"` // one-line status
+	Who      string `json:"who,omitempty"`
+	Why      string `json:"why,omitempty"`
+	Action   string `json:"action,omitempty"`
+	Enforced string `json:"enforced,omitempty"`
+}
+
+// Rows projects a board snapshot into structured entries. Same content as
+// RenderBoard, without the text formatting.
+func Rows(flows []Flow) []Row {
+	out := make([]Row, 0, len(flows))
+	for _, f := range flows {
+		r := Row{
+			Domain: f.Domain,
+			Nature: string(f.Nature()),
+			Badge:  badge(f.Nature()),
+			TLS:    versionLabel(f.Version),
+			Status: statusNote(f),
+		}
+		if f.Analyzed && f.Nature() != verdict.NatureNone {
+			r.Why = oneLine(f.DeepCause)
+			r.Who = whoLine(f)
+			r.Action = f.Action.Label()
+			r.Enforced = f.Enforced
+		}
+		out = append(out, r)
+	}
+	return out
+}
+
 // RenderBoard formats the live cockpit: one row per domain, most-recent first,
 // each with a status badge, negotiated TLS version, and a short note. It is a
 // pure function of the snapshot and the current time, so it is unit-tested and
