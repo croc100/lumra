@@ -224,6 +224,11 @@ func runLive(args []string) {
 	tapErr := make(chan error, 1)
 	go func() { tapErr <- live.NewTap().Run(ctx, tracker.Observe) }()
 
+	// Auto-escalation: the board resolves itself. Whenever the passive tap sees a
+	// domain with an outcome, a full diagnosis runs in the background and upgrades
+	// its badge to an authoritative verdict — no drilling, no knobs.
+	go live.NewEscalator(tracker, engine.Diagnose).Run(ctx)
+
 	// Give the tap a moment to fail fast on the common errors (no privilege,
 	// unsupported platform) so we print a clean message instead of a blank board.
 	select {
