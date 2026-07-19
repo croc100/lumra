@@ -7,12 +7,15 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
 	"github.com/croc100/lumra/internal/engine"
 	"github.com/croc100/lumra/internal/nativemsg"
 	"github.com/croc100/lumra/internal/report"
 	"github.com/croc100/lumra/internal/verdict"
+	"github.com/croc100/lumra/internal/watch"
 )
 
 // Build metadata, injected by the release pipeline via -ldflags -X.
@@ -25,6 +28,7 @@ var (
 func usage() {
 	fmt.Fprintln(os.Stderr, "usage:\n"+
 		"  lumra diagnose <domain> [--json] [--report <file.html>]\n"+
+		"  lumra watch <domain> [--interval 30s] [--json]\n"+
 		"  lumra install-host <extension-id>   (register the browser native host)\n"+
 		"  lumra nm-host                       (native-messaging host; run by the browser)\n"+
 		"  lumra version")
@@ -48,6 +52,8 @@ func main() {
 		printVersion()
 	case "diagnose":
 		runDiagnose(os.Args[2:])
+	case "watch":
+		runWatch(os.Args[2:])
 	case "nm-host":
 		// Speaks the browser native-messaging protocol on stdin/stdout.
 		if err := nativemsg.Serve(os.Stdin, os.Stdout); err != nil {
@@ -122,6 +128,75 @@ func runDiagnose(args []string) {
 		return
 	}
 	printVerdict(v)
+}
+
+func runWatch(args []string) {
+	var target string
+	var jsonOut bool
+	interval := 30 * time.Second
+	for i := 0; i < len(args); i++ {
+		switch args[i] {
+		case "--json", "-json":
+			jsonOut = true
+		case "--interval", "-interval":
+			if i+1 >= len(args) {
+				fmt.Fprintln(os.Stderr, "--interval needs a duration, e.g. 30s")
+				os.Exit(2)
+			}
+			i++
+			d, err := time.ParseDuration(args[i])
+			if err != nil || d <= 0 {
+				fmt.Fprintln(os.Stderr, "invalid --interval:", args[i])
+				os.Exit(2)
+			}
+			interval = d
+		default:
+			if target == "" {
+				target = args[i]
+			}
+		}
+	}
+	if target == "" {
+		usage()
+		os.Exit(2)
+	}
+
+	// Cancel on Ctrl-C / SIGTERM so the ticker loop exits cleanly.
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	enc := json.NewEncoder(os.Stdout)
+	if !jsonOut {
+		fmt.Fprintf(os.Stderr, "watching %s every %s (Ctrl-C to stop)\n", target, interval)
+	}
+
+	m := watch.New(target, func(c context.Context, t string) *verdict.Verdict {
+		// Bound each individual diagnosis so a hung probe can't stall the loop.
+		dctx, cancel := context.WithTimeout(c, 20*time.Second)
+		defer cancel()
+		return engine.Diagnose(dctx, t)
+	})
+	m.Run(ctx, interval, func(e watch.Event) {
+		if jsonOut {
+			_ = enc.Encode(e)
+			return
+		}
+		printEvent(e)
+	})
+}
+
+func printEvent(e watch.Event) {
+	ts := e.At.Format("15:04:05")
+	switch e.Kind {
+	case watch.Start:
+		fmt.Printf("[%s] ● baseline: %s\n", ts, e.Type)
+	case watch.Blocked:
+		fmt.Printf("[%s] ✗ BLOCKED: %s\n", ts, e.Type)
+	case watch.Recovered:
+		fmt.Printf("[%s] ✓ recovered (was %s)\n", ts, e.Prev)
+	case watch.Changed:
+		fmt.Printf("[%s] ⟳ changed: %s → %s\n", ts, e.Prev, e.Type)
+	}
 }
 
 func printVerdict(v *verdict.Verdict) {
