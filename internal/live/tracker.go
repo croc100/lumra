@@ -45,6 +45,8 @@ type Flow struct {
 	AnalyzedAt time.Time
 	DeepType   verdict.Type
 	Confidence verdict.Confidence
+	DeepCause  string // one-line reason, surfaced automatically (auto drill-down)
+	Action     Action // protective policy Lumra applied on its own (auto lever)
 }
 
 // Nature is the intuitive character of this flow. Once the Escalator has run a
@@ -105,15 +107,18 @@ func (t *Tracker) Observe(e Event) {
 }
 
 // SetVerdict records an authoritative deep-analysis result for a domain,
-// promoting its board badge from the passive guess to the real verdict.
-func (t *Tracker) SetVerdict(domain string, typ verdict.Type, conf verdict.Confidence, now time.Time) {
+// promoting its board badge from the passive guess to the real verdict and
+// attaching the reason and the protective action Lumra chose on its own.
+func (t *Tracker) SetVerdict(domain string, v *verdict.Verdict, now time.Time) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	if f := t.flows[domain]; f != nil {
 		f.Analyzed = true
 		f.AnalyzedAt = now
-		f.DeepType = typ
-		f.Confidence = conf
+		f.DeepType = v.Type
+		f.Confidence = v.Confidence
+		f.DeepCause = v.Cause
+		f.Action = Recommend(v.Type)
 	}
 }
 

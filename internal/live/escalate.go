@@ -89,5 +89,5 @@ func (e *Escalator) analyze(ctx context.Context, domain string) {
 	if v == nil {
 		return
 	}
-	e.tracker.SetVerdict(domain, v.Type, v.Confidence, time.Now())
+	e.tracker.SetVerdict(domain, v, time.Now())
 }

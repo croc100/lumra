@@ -61,26 +61,51 @@ func RenderBoard(flows []Flow, now time.Time) string {
 		return b.String()
 	}
 	for _, f := range flows {
-		note := statusNote(f)
 		fmt.Fprintf(&b, "  %s  %-28s %-7s %s\n",
-			badge(f.Nature()), truncate(f.Domain, 28), versionLabel(f.Version), note)
+			badge(f.Nature()), truncate(f.Domain, 28), versionLabel(f.Version), statusNote(f))
+		// Auto drill-down: once analyzed, the reason and the protective action
+		// Lumra took surface on their own — the user never has to select a row.
+		if f.Analyzed && f.Nature() != verdict.NatureNone {
+			if f.DeepCause != "" {
+				fmt.Fprintf(&b, "        └ why: %s\n", truncate(oneLine(f.DeepCause), 66))
+			}
+			if lbl := f.Action.Label(); lbl != "" {
+				fmt.Fprintf(&b, "        └ %s\n", lbl)
+			}
+		}
 	}
 	return b.String()
 }
 
-// statusNote is the human-readable tail of a board row.
+// statusNote is the human-readable tail of a board row. Once a domain has been
+// analyzed, it states the authoritative verdict; before that it reports only
+// what the passive tap has proven.
 func statusNote(f Flow) string {
+	if f.Analyzed {
+		switch f.Nature() {
+		case verdict.NatureNone:
+			return "clean"
+		default:
+			if f.Confidence != "" {
+				return fmt.Sprintf("%s (%s confidence)", f.DeepType, f.Confidence)
+			}
+			return string(f.DeepType)
+		}
+	}
 	switch f.Nature() {
 	case verdict.NatureControl:
 		return fmt.Sprintf("BLOCKED — %d reset(s), no session established", f.Resets)
 	case verdict.NatureNone:
-		if f.Resets > 0 {
-			return fmt.Sprintf("clean (%d reset(s) seen but session held)", f.Resets)
-		}
-		return "clean"
+		return "handshake OK — analyzing…"
 	default:
 		return fmt.Sprintf("%d attempt(s), awaiting handshake", f.Hits)
 	}
+}
+
+// oneLine collapses internal whitespace/newlines so a multi-sentence cause fits
+// on a single board row.
+func oneLine(s string) string {
+	return strings.Join(strings.Fields(s), " ")
 }
 
 // truncate shortens s to n runes with an ellipsis so long domains keep columns aligned.

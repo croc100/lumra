@@ -25,7 +25,7 @@ func TestPendingAnalysisSelection(t *testing.T) {
 	}
 
 	// Once analyzed, a.com drops out until the reanalyze window elapses.
-	tr.SetVerdict("a.com", verdict.OK, verdict.Low, now)
+	tr.SetVerdict("a.com", &verdict.Verdict{Type: verdict.OK, Confidence: verdict.Low}, now)
 	if got := tr.PendingAnalysis(time.Minute, now.Add(30*time.Second)); len(got) != 1 || got[0] != "c.com" {
 		t.Fatalf("after analysis pending = %v, want [c.com]", got)
 	}
