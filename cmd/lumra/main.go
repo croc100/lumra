@@ -31,7 +31,7 @@ func usage() {
 	fmt.Fprintln(os.Stderr, "usage:\n"+
 		"  lumra diagnose <domain> [--json] [--report <file.html>]\n"+
 		"  lumra watch <domain> [--interval 30s] [--json]\n"+
-		"  lumra live                          (passive cockpit: live board of every domain)\n"+
+		"  lumra live [--active]               (passive cockpit; --active adds background confirmation)\n"+
 		"  lumra install-host <extension-id>   (register the browser native host)\n"+
 		"  lumra nm-host                       (native-messaging host; run by the browser)\n"+
 		"  lumra version")
@@ -209,12 +209,18 @@ func printEvent(e watch.Event) {
 // badge. It is Lumra's cockpit: the live view of your own internet.
 func runLive(args []string) {
 	interval := time.Second
+	var active bool
 	for i := 0; i < len(args); i++ {
-		if args[i] == "--interval" && i+1 < len(args) {
-			if d, err := time.ParseDuration(args[i+1]); err == nil && d > 0 {
-				interval = d
+		switch args[i] {
+		case "--active", "-active":
+			active = true
+		case "--interval", "-interval":
+			if i+1 < len(args) {
+				if d, err := time.ParseDuration(args[i+1]); err == nil && d > 0 {
+					interval = d
+				}
+				i++
 			}
-			i++
 		}
 	}
 
@@ -225,14 +231,16 @@ func runLive(args []string) {
 	tapErr := make(chan error, 1)
 	go func() { tapErr <- live.NewTap().Run(ctx, tracker.Observe) }()
 
-	// Auto-escalation + enforcement: the board resolves itself, and the protective
-	// lever is applied on its own. Whenever the passive tap sees a domain with an
-	// outcome, a full diagnosis runs in the background, upgrades its badge to an
-	// authoritative verdict, and (for a fixable verdict like DNS tampering) writes
-	// a DoH-verified override — no drilling, no knobs.
-	esc := live.NewEscalator(tracker, engine.Diagnose)
-	esc.Enforcer = live.NewEnforcer(live.DefaultDir(), probe.ResolveDoH)
-	go esc.Run(ctx)
+	// Default is pure passive: the board reflects only what the tap observes on
+	// the wire — no connection Lumra opens itself. --active opts in to background
+	// confirmation, where Lumra makes its own separate probe connections to reach
+	// an authoritative verdict and apply the protective lever. Either way the
+	// user's own traffic is only ever watched, never intercepted or forwarded.
+	if active {
+		esc := live.NewEscalator(tracker, engine.Diagnose)
+		esc.Enforcer = live.NewEnforcer(live.DefaultDir(), probe.ResolveDoH)
+		go esc.Run(ctx)
+	}
 
 	// Give the tap a moment to fail fast on the common errors (no privilege,
 	// unsupported platform) so we print a clean message instead of a blank board.
@@ -250,7 +258,7 @@ func runLive(args []string) {
 	for {
 		fmt.Print("\033[H\033[2J") // clear screen, cursor home
 		fmt.Print(live.RenderBoard(tracker.Snapshot(), time.Now()))
-		fmt.Println("\n  Ctrl-C to stop")
+		fmt.Printf("\n  mode: %s · Ctrl-C to stop\n", liveMode(active))
 		select {
 		case <-ctx.Done():
 			return
@@ -263,6 +271,14 @@ func runLive(args []string) {
 		case <-t.C:
 		}
 	}
+}
+
+// liveMode labels the cockpit's observation mode for the footer.
+func liveMode(active bool) string {
+	if active {
+		return "passive tap + active confirmation"
+	}
+	return "passive — watching only, no probes"
 }
 
 // natureLine renders the folded, user-facing character of a verdict: what is
