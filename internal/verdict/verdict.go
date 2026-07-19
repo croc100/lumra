@@ -13,6 +13,7 @@ const (
 	RSTInjection  Type = "RST_INJECTION"  // middlebox injects TCP RST
 	IPBlocking    Type = "IP_BLOCKING"    // destination IP blackholed/dropped
 	TLSMITM       Type = "TLS_MITM"       // certificate substitution
+	TLSDowngrade  Type = "TLS_DOWNGRADE"  // TLS 1.3 stripped to force a readable handshake
 	BlockPage     Type = "BLOCK_PAGE"     // block/notice page injected
 	Throttling    Type = "THROTTLING"     // target-selective rate limiting
 	LocalIssue    Type = "LOCAL_ISSUE"    // the user's own network is at fault
@@ -45,7 +46,7 @@ func NatureOf(t Type) Nature {
 		return NatureNone
 	case DNSTampering, SNIFiltering, RSTInjection, IPBlocking, BlockPage:
 		return NatureControl
-	case TLSMITM:
+	case TLSMITM, TLSDowngrade:
 		return NatureSurveillance
 	case Throttling:
 		return NatureDegradation

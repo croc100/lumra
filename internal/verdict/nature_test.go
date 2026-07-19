@@ -11,6 +11,7 @@ func TestNatureOf(t *testing.T) {
 		IPBlocking:    NatureControl,
 		BlockPage:     NatureControl,
 		TLSMITM:       NatureSurveillance,
+		TLSDowngrade:  NatureSurveillance,
 		Throttling:    NatureDegradation,
 		LocalIssue:    NatureFault,
 		GenuineOutage: NatureFault,
@@ -28,7 +29,7 @@ func TestNatureOf(t *testing.T) {
 func TestNatureOfTotal(t *testing.T) {
 	for _, typ := range []Type{
 		OK, DNSTampering, SNIFiltering, RSTInjection, IPBlocking, TLSMITM,
-		BlockPage, Throttling, LocalIssue, GenuineOutage, Inconclusive,
+		TLSDowngrade, BlockPage, Throttling, LocalIssue, GenuineOutage, Inconclusive,
 	} {
 		if NatureOf(typ) == "" {
 			t.Errorf("Type %s maps to empty Nature", typ)

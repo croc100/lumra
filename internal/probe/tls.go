@@ -139,16 +139,27 @@ func classifyReachability(target, benign tlsAttempt) (verdict.Type, verdict.Conf
 // classify maps a dial/handshake error to interference-relevant categories.
 func (a *tlsAttempt) classify(err error) {
 	a.Err = err.Error()
-	var ne net.Error
-	if errors.As(err, &ne) && ne.Timeout() {
+	if isTimeout(err) {
 		a.Timeout = true
 		return
 	}
-	msg := strings.ToLower(err.Error())
-	if strings.Contains(msg, "reset") || errors.Is(err, net.ErrClosed) ||
-		strings.Contains(msg, "broken pipe") || strings.Contains(msg, "eof") {
+	if isReset(err) {
 		a.Reset = true
 	}
+}
+
+// isTimeout reports whether err is a network timeout (a possible blackhole).
+func isTimeout(err error) bool {
+	var ne net.Error
+	return errors.As(err, &ne) && ne.Timeout()
+}
+
+// isReset reports whether err looks like a connection reset — the signature of a
+// middlebox tearing the connection down, as opposed to a server-sent TLS alert.
+func isReset(err error) bool {
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "reset") || errors.Is(err, net.ErrClosed) ||
+		strings.Contains(msg, "broken pipe") || strings.Contains(msg, "eof")
 }
 
 // Contribute folds the TLS/SNI finding into the verdict.

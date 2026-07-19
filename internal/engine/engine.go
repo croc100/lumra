@@ -25,6 +25,9 @@ func Diagnose(ctx context.Context, target string) *verdict.Verdict {
 	// DNS answer does not send us to a sinkhole.
 	if ip := pickIP(dns); ip != "" {
 		probe.TLS(ctx, target, ip).Contribute(v)
+		// Surveillance axis: a middlebox stripping TLS 1.3 to keep the SNI/cert
+		// readable. Runs after TLS so a hard block (MITM/SNI) takes precedence.
+		probe.Downgrade(ctx, target, ip).Contribute(v)
 		probe.RST(ctx, ip).Contribute(v)
 		// Throughput last of the target-IP probes: only a weaker throttling
 		// signal, and it must not mask a hard block found above.
