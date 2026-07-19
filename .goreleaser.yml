@@ -74,6 +74,17 @@ brews:
     install: |
       bin.install "lumra"
 
+scoops:
+  - name: lumra
+    repository:
+      owner: croc100
+      name: scoop-bucket
+      token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
+    directory: bucket
+    homepage: "https://lumra.crode.net"
+    description: "Diagnose why a site is blocked, throttled, or tampered with — and where the interference originates"
+    license: "Elastic-2.0"
+
 release:
   github:
     owner: croc100
