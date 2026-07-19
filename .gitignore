@@ -2,3 +2,4 @@
 /lumra.exe
 *.out
 /dist/
+/.claude/
