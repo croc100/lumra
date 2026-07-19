@@ -21,16 +21,21 @@ const (
 	// Cert is a server certificate observed (TLS 1.2 cleartext) and verified
 	// against the system roots. Untrusted marks a substituted chain — MITM.
 	Cert EventKind = "cert"
+	// DNS is a DNS reply whose answer bears an injected-redirect signature
+	// (sinkhole/bogon address), read passively off the wire.
+	DNS EventKind = "dns"
 )
 
 // Event is one observation from the tap, already resolved to a domain.
 type Event struct {
-	Kind      EventKind
-	Domain    string
-	Version   uint16 // negotiated TLS version, ServerHello only
-	Untrusted bool   // Cert only: chain does not reach a trusted root (MITM signal)
-	Subject   string // Cert only: leaf subject CN, for the evidence line
-	At        time.Time
+	Kind       EventKind
+	Domain     string
+	Version    uint16 // negotiated TLS version, ServerHello only
+	Untrusted  bool   // Cert only: chain does not reach a trusted root (MITM signal)
+	Subject    string // Cert only: leaf subject CN, for the evidence line
+	Suspicious bool   // DNS only: answer bears an injected-redirect signature
+	Reason     string // DNS only: why the answer looks injected
+	At         time.Time
 }
 
 // Flow is the live state of one domain the host has been talking to.
@@ -49,6 +54,11 @@ type Flow struct {
 	CertChecked   bool
 	CertUntrusted bool
 	CertSubject   string
+
+	// Passive DNS check: a reply for this name carried a sinkhole/bogon answer,
+	// the signature of an injected DNS redirect — caught without any resolver.
+	DNSInjected bool
+	DNSReason   string
 
 	// Deep-analysis result, filled automatically by the Escalator so the board
 	// resolves from a passive guess to an authoritative verdict without the user
@@ -74,6 +84,9 @@ func (f *Flow) Nature() verdict.Nature {
 	}
 	if f.CertUntrusted {
 		return verdict.NatureSurveillance // substituted cert caught passively — MITM
+	}
+	if f.DNSInjected {
+		return verdict.NatureControl // DNS redirected to a sinkhole — a block
 	}
 	if f.Resets > 0 && !f.Handshake {
 		return verdict.NatureControl // reset with no session ever established
@@ -127,6 +140,11 @@ func (t *Tracker) Observe(e Event) {
 		if e.Subject != "" {
 			f.CertSubject = e.Subject
 		}
+	case DNS:
+		if e.Suspicious {
+			f.DNSInjected = true
+			f.DNSReason = e.Reason
+		}
 	}
 }
 
@@ -165,7 +183,7 @@ func (t *Tracker) PendingAnalysis(reanalyze time.Duration, now time.Time) []stri
 	defer t.mu.Unlock()
 	var out []string
 	for name, f := range t.flows {
-		if !f.Handshake && f.Resets == 0 {
+		if !f.Handshake && f.Resets == 0 && !f.DNSInjected {
 			continue // nothing has happened yet; wait for an outcome
 		}
 		if !f.Analyzed || now.Sub(f.AnalyzedAt) >= reanalyze {

@@ -1,0 +1,176 @@
+package live
+
+import (
+	"encoding/binary"
+	"time"
+)
+
+// This file holds the portable, OS-independent packet path: given a raw IPv4
+// packet it extracts the TLS handshake metadata and DNS answers Lumra reasons
+// about, and emits tap events. It is deliberately free of any syscall or framing
+// concern so it is shared by every capture backend — the Linux AF_PACKET tap
+// (which strips an Ethernet header first) and the TUN/VPN source (desktop and
+// mobile, which deliver raw IP packets already). The mobile VPN tunnel wires
+// straight into dispatcher.handle; nothing here changes per platform.
+
+const flagRST = 1 << 2
+
+// flowKey identifies one connection by the server IP and the client's ephemeral
+// port, stable across both directions of the flow.
+type flowKey struct {
+	serverIP [4]byte
+	clientPt uint16
+}
+
+// flowState carries the per-connection data the tap accumulates: the domain from
+// the ClientHello and a reassembler for the server's handshake stream.
+type flowState struct {
+	domain string
+	re     hsReassembler
+}
+
+// l4 is the parsed subset of an IPv4 packet the dispatcher needs.
+type l4 struct {
+	srcIP, dstIP     [4]byte
+	srcPort, dstPort uint16
+	proto            byte
+	flags            byte   // TCP flags
+	payload          []byte // L4 payload (TLS records or DNS message)
+}
+
+const (
+	protoTCP = 6
+	protoUDP = 17
+)
+
+// dispatcher turns raw IPv4 packets into tap events. It owns the per-flow state,
+// so a single capture goroutine drives it.
+type dispatcher struct {
+	flows map[flowKey]*flowState
+	emit  func(Event)
+}
+
+func newDispatcher(emit func(Event)) *dispatcher {
+	return &dispatcher{flows: make(map[flowKey]*flowState), emit: emit}
+}
+
+// handle parses one raw IPv4 packet and emits any events it yields.
+func (d *dispatcher) handle(ip []byte, now time.Time) {
+	p, ok := parseIPv4Packet(ip)
+	if !ok {
+		return
+	}
+	switch p.proto {
+	case protoTCP:
+		d.handleTLS(p, now)
+	case protoUDP:
+		// A DNS reply arrives from source port 53; that is all we passively read.
+		if p.srcPort == 53 {
+			d.handleDNS(p, now)
+		}
+	}
+}
+
+// handleTLS attributes a TCP segment to its flow and reads the SNI, negotiated
+// version, certificate, and resets from the (reassembled) handshake.
+func (d *dispatcher) handleTLS(p l4, now time.Time) {
+	switch {
+	case p.dstPort == 443: // outbound to a server
+		key := flowKey{p.dstIP, p.srcPort}
+		if sni, ok := ParseClientHelloSNI(p.payload); ok {
+			d.flows[key] = &flowState{domain: sni}
+			d.emit(Event{Kind: ClientHello, Domain: sni, At: now})
+		}
+	case p.srcPort == 443: // inbound from a server
+		key := flowKey{p.srcIP, p.dstPort}
+		st := d.flows[key]
+		if st == nil {
+			return // no ClientHello seen for this flow; nothing to attribute
+		}
+		if p.flags&flagRST != 0 {
+			d.emit(Event{Kind: Reset, Domain: st.domain, At: now})
+			delete(d.flows, key)
+			return
+		}
+		for _, msg := range st.re.Feed(p.payload) {
+			switch msg[0] {
+			case 2: // ServerHello
+				if v, ok := parseServerHelloMsg(msg); ok {
+					d.emit(Event{Kind: ServerHello, Domain: st.domain, Version: v, At: now})
+				}
+			case 11: // Certificate (TLS 1.2 cleartext) — passive MITM check
+				if ders, ok := extractCertificates(msg); ok {
+					if subj, untrusted, ok := inspectChain(ders, st.domain); ok {
+						d.emit(Event{Kind: Cert, Domain: st.domain, Untrusted: untrusted, Subject: subj, At: now})
+					}
+				}
+			}
+		}
+	}
+}
+
+// handleDNS reads a DNS reply and, when its answer bears a censorship signature
+// (a sinkhole/bogon address for a public name), emits a DNS event.
+func (d *dispatcher) handleDNS(p l4, now time.Time) {
+	name, ips, ok := parseDNSReply(p.payload)
+	if !ok || name == "" {
+		return
+	}
+	if reason, bad := suspiciousAnswer(ips); bad {
+		d.emit(Event{Kind: DNS, Domain: name, Suspicious: true, Reason: reason, At: now})
+	}
+}
+
+// parseEthernet returns the IP payload of an Ethernet II frame carrying IPv4,
+// or ok=false for anything else. Used by the AF_PACKET backend.
+func parseEthernet(b []byte) ([]byte, bool) {
+	if len(b) < 14 || binary.BigEndian.Uint16(b[12:14]) != 0x0800 {
+		return nil, false
+	}
+	return b[14:], true
+}
+
+// parseIPv4Packet parses an IPv4 packet carrying TCP or UDP. Bounds are checked
+// at every step against raw wire data.
+func parseIPv4Packet(ip []byte) (l4, bool) {
+	if len(ip) < 20 || ip[0]>>4 != 4 {
+		return l4{}, false
+	}
+	proto := ip[9]
+	if proto != protoTCP && proto != protoUDP {
+		return l4{}, false
+	}
+	ihl := int(ip[0]&0x0f) * 4
+	totalLen := int(binary.BigEndian.Uint16(ip[2:4]))
+	if ihl < 20 || len(ip) < ihl || totalLen < ihl || totalLen > len(ip) {
+		return l4{}, false
+	}
+	var f l4
+	f.proto = proto
+	copy(f.srcIP[:], ip[12:16])
+	copy(f.dstIP[:], ip[16:20])
+	l4b := ip[ihl:totalLen]
+
+	if proto == protoUDP {
+		if len(l4b) < 8 {
+			return l4{}, false
+		}
+		f.srcPort = binary.BigEndian.Uint16(l4b[0:2])
+		f.dstPort = binary.BigEndian.Uint16(l4b[2:4])
+		f.payload = l4b[8:]
+		return f, true
+	}
+	// TCP
+	if len(l4b) < 20 {
+		return l4{}, false
+	}
+	dataOff := int(l4b[12]>>4) * 4
+	if dataOff < 20 || len(l4b) < dataOff {
+		return l4{}, false
+	}
+	f.srcPort = binary.BigEndian.Uint16(l4b[0:2])
+	f.dstPort = binary.BigEndian.Uint16(l4b[2:4])
+	f.flags = l4b[13]
+	f.payload = l4b[dataOff:]
+	return f, true
+}

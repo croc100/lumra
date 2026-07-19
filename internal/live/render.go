@@ -104,6 +104,9 @@ func statusNote(f Flow) string {
 	case verdict.NatureSurveillance:
 		return fmt.Sprintf("WATCHED — cert %q does not chain to a trusted root (MITM)", f.CertSubject)
 	case verdict.NatureControl:
+		if f.DNSInjected {
+			return "DNS REDIRECTED — " + f.DNSReason
+		}
 		return fmt.Sprintf("BLOCKED — %d reset(s), no session established", f.Resets)
 	case verdict.NatureNone:
 		if f.CertChecked {
