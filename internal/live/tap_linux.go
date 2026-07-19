@@ -24,6 +24,13 @@ type flowKey struct {
 	clientPt uint16
 }
 
+// flowState carries the per-connection data the tap accumulates: the domain from
+// the ClientHello and a reassembler for the server's handshake stream.
+type flowState struct {
+	domain string
+	re     hsReassembler
+}
+
 func (linuxTap) Run(ctx context.Context, emit func(Event)) error {
 	// ETH_P_ALL in network byte order captures every frame on every interface.
 	fd, err := syscall.Socket(syscall.AF_PACKET, syscall.SOCK_RAW, int(htons(syscall.ETH_P_ALL)))
@@ -37,9 +44,10 @@ func (linuxTap) Run(ctx context.Context, emit func(Event)) error {
 	// Short read timeout so ctx cancellation is honored promptly.
 	_ = syscall.SetsockoptTimeval(fd, syscall.SOL_SOCKET, syscall.SO_RCVTIMEO, &syscall.Timeval{Sec: 1})
 
-	// Map each flow to the domain learned from its ClientHello, so inbound
-	// ServerHellos and RSTs can be attributed back to a name.
-	domains := make(map[flowKey]string)
+	// Track each flow by the domain learned from its ClientHello, plus a handshake
+	// reassembler so inbound ServerHellos, certificates, and RSTs are attributed
+	// back to a name and read across segment boundaries.
+	flows := make(map[flowKey]*flowState)
 	buf := make([]byte, 65536)
 	for {
 		select {
@@ -60,22 +68,36 @@ func (linuxTap) Run(ctx context.Context, emit func(Event)) error {
 		case fr.dstPort == 443: // outbound to a server
 			key := flowKey{fr.dstIP, fr.srcPort}
 			if sni, ok := ParseClientHelloSNI(fr.payload); ok {
-				domains[key] = sni
+				flows[key] = &flowState{domain: sni}
 				emit(Event{Kind: ClientHello, Domain: sni, At: now})
 			}
 		case fr.srcPort == 443: // inbound from a server
 			key := flowKey{fr.srcIP, fr.dstPort}
-			dom := domains[key]
-			if dom == "" {
+			st := flows[key]
+			if st == nil {
 				continue // no ClientHello seen for this flow; nothing to attribute
 			}
 			if fr.flags&flagRST != 0 {
-				emit(Event{Kind: Reset, Domain: dom, At: now})
-				delete(domains, key)
+				emit(Event{Kind: Reset, Domain: st.domain, At: now})
+				delete(flows, key)
 				continue
 			}
-			if v, ok := ParseServerHelloVersion(fr.payload); ok {
-				emit(Event{Kind: ServerHello, Domain: dom, Version: v, At: now})
+			// Reassemble the server's handshake across segments and read each
+			// message: ServerHello (version) and Certificate (passive MITM check).
+			for _, msg := range st.re.Feed(fr.payload) {
+				switch msg[0] {
+				case 2: // ServerHello
+					if v, ok := parseServerHelloMsg(msg); ok {
+						emit(Event{Kind: ServerHello, Domain: st.domain, Version: v, At: now})
+					}
+				case 11: // Certificate
+					if ders, ok := extractCertificates(msg); ok {
+						subj, untrusted, ok := inspectChain(ders, st.domain)
+						if ok {
+							emit(Event{Kind: Cert, Domain: st.domain, Untrusted: untrusted, Subject: subj, At: now})
+						}
+					}
+				}
 			}
 		}
 	}

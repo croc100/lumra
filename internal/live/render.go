@@ -96,10 +96,15 @@ func statusNote(f Flow) string {
 		}
 	}
 	switch f.Nature() {
+	case verdict.NatureSurveillance:
+		return fmt.Sprintf("WATCHED — cert %q does not chain to a trusted root (MITM)", f.CertSubject)
 	case verdict.NatureControl:
 		return fmt.Sprintf("BLOCKED — %d reset(s), no session established", f.Resets)
 	case verdict.NatureNone:
-		return "handshake OK — analyzing…"
+		if f.CertChecked {
+			return "clean — cert verified"
+		}
+		return "handshake OK"
 	default:
 		return fmt.Sprintf("%d attempt(s), awaiting handshake", f.Hits)
 	}

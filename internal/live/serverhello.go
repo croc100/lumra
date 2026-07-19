@@ -11,12 +11,17 @@ func ParseServerHelloVersion(rec []byte) (uint16, bool) {
 	if len(rec) < 5 || rec[0] != 22 {
 		return 0, false
 	}
-	body := rec[5:]
-	if len(body) < 4 || body[0] != 2 { // handshake type 2 = ServerHello
+	return parseServerHelloMsg(rec[5:])
+}
+
+// parseServerHelloMsg reads the version from a bare ServerHello handshake message
+// (type 2 + 3-byte length + body), as produced by the reassembler.
+func parseServerHelloMsg(msg []byte) (uint16, bool) {
+	if len(msg) < 4 || msg[0] != 2 { // handshake type 2 = ServerHello
 		return 0, false
 	}
-	hlen := int(body[1])<<16 | int(body[2])<<8 | int(body[3])
-	body = body[4:]
+	hlen := int(msg[1])<<16 | int(msg[2])<<8 | int(msg[3])
+	body := msg[4:]
 	if len(body) < hlen {
 		return 0, false
 	}

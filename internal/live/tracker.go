@@ -18,14 +18,19 @@ const (
 	ServerHello EventKind = "server_hello"
 	// Reset is a TCP RST observed on a tracked flow — the middlebox block signature.
 	Reset EventKind = "reset"
+	// Cert is a server certificate observed (TLS 1.2 cleartext) and verified
+	// against the system roots. Untrusted marks a substituted chain — MITM.
+	Cert EventKind = "cert"
 )
 
 // Event is one observation from the tap, already resolved to a domain.
 type Event struct {
-	Kind    EventKind
-	Domain  string
-	Version uint16 // negotiated TLS version, ServerHello only
-	At      time.Time
+	Kind      EventKind
+	Domain    string
+	Version   uint16 // negotiated TLS version, ServerHello only
+	Untrusted bool   // Cert only: chain does not reach a trusted root (MITM signal)
+	Subject   string // Cert only: leaf subject CN, for the evidence line
+	At        time.Time
 }
 
 // Flow is the live state of one domain the host has been talking to.
@@ -37,6 +42,13 @@ type Flow struct {
 	Handshake bool   // a ServerHello was seen (the session got established)
 	Resets    int    // RSTs observed on this domain's flows
 	Hits      int    // ClientHellos observed (connection attempts)
+
+	// Passive certificate check (TLS 1.2, no active probe): CertChecked once a
+	// server cert was observed and verified; CertUntrusted marks a substituted
+	// chain — a man-in-the-middle read of the session caught purely by watching.
+	CertChecked   bool
+	CertUntrusted bool
+	CertSubject   string
 
 	// Deep-analysis result, filled automatically by the Escalator so the board
 	// resolves from a passive guess to an authoritative verdict without the user
@@ -57,6 +69,9 @@ type Flow struct {
 func (f *Flow) Nature() verdict.Nature {
 	if f.Analyzed {
 		return verdict.NatureOf(f.DeepType)
+	}
+	if f.CertUntrusted {
+		return verdict.NatureSurveillance // substituted cert caught passively — MITM
 	}
 	if f.Resets > 0 && !f.Handshake {
 		return verdict.NatureControl // reset with no session ever established
@@ -104,6 +119,12 @@ func (t *Tracker) Observe(e Event) {
 		}
 	case Reset:
 		f.Resets++
+	case Cert:
+		f.CertChecked = true
+		f.CertUntrusted = e.Untrusted
+		if e.Subject != "" {
+			f.CertSubject = e.Subject
+		}
 	}
 }
 
