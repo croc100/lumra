@@ -1,11 +1,37 @@
 # Lumra on mobile
 
-The mobile clients reuse Lumra's cockpit core unchanged. There is no raw-socket
-capture on a phone, so the OS routes traffic through an on-device **VPN tunnel**;
-the native provider feeds each packet to this Go core and reads the board back.
+Lumra is a **diagnosis engine, not a VPN.** It only ever *observes* traffic —
+reads packets, never holds, modifies, routes, or re-injects them. Routing around
+blocks (the serverless-VPN role) belongs to **warren**, not Lumra.
 
-Lumra only **observes**: packets are read, never held, modified, or re-injected.
-The tunnel is monitor-only — the same passive philosophy as the desktop tap.
+Because Lumra never owns the network path, it is **source-agnostic**: hand it raw
+IPv4 packets from wherever they come and it produces the live board. That gives
+two host modes on mobile:
+
+### A. Embedded in warren (primary)
+
+warren owns the on-device serverless-VPN tunnel and does the circumvention. It
+embeds Lumra as its diagnosis engine and feeds every tunnel packet to
+`Cockpit.Feed`, then renders the board in warren's own UI. This is why there is
+no VPN conflict: only warren holds the OS's single VPN slot.
+
+```
+warren app  (serverless VPN — routes/circumvents)
+  └─ embeds Lumra (diagnosis core)
+       ├─ Cockpit.Feed(tunnelPacket)   // observe every packet warren tunnels
+       └─ Cockpit.BoardJSON()          // → warren renders "who blocked / watched / down"
+```
+
+### B. Standalone Lumra app (monitoring only)
+
+For pure monitoring with no warren present, Lumra can run its own **monitor-only**
+local tunnel — a capture path with no exit server, no circumvention. It reads
+packets, passes them straight through untouched, and diagnoses. Note the OS
+allows one VPN at a time, so this standalone mode and warren's VPN are mutually
+exclusive; when warren is active, use mode A.
+
+Either way the Go core and its analysis (SNI, TLS version, certificate-MITM,
+DNS-redirect) are identical — the only difference is who supplies the packets.
 
 ## Build the binding
 
@@ -13,14 +39,11 @@ The tunnel is monitor-only — the same passive philosophy as the desktop tap.
 go install golang.org/x/mobile/cmd/gomobile@latest
 gomobile init
 
-# Android → lumra.aar
 gomobile bind -target=android -o lumra.aar        github.com/croc100/lumra/mobile
-
-# iOS → Lumra.xcframework
 gomobile bind -target=ios     -o Lumra.xcframework github.com/croc100/lumra/mobile
 ```
 
-## The API (`mobile.Cockpit`)
+## The API (`mobile.Cockpit`) — the warren↔Lumra seam
 
 | Method                | Purpose                                                        |
 |-----------------------|---------------------------------------------------------------|
@@ -30,34 +53,26 @@ gomobile bind -target=ios     -o Lumra.xcframework github.com/croc100/lumra/mobi
 | `BoardJSON() []byte`  | JSON array of rows (`domain, nature, badge, tls, status, …`). |
 | `Count() int`         | Number of domains currently monitored.                        |
 
-## iOS — NEPacketTunnelProvider (sketch)
+warren (or a standalone Lumra shell) calls `Feed` in its packet loop and renders
+from `BoardJSON`. Lumra returns diagnosis only — it never tells the tunnel to
+reroute; what to do about a block is warren's decision.
+
+## Packet loop (either host)
+
+iOS — `NEPacketTunnelProvider`:
 
 ```swift
-let cockpit = MobileNewCockpit()
-
-func readLoop() {
-    packetFlow.readPackets { packets, _ in
-        for p in packets { cockpit?.feed(p) }        // observe
-        self.packetFlow.write(packets, withProtocols: protocols) // pass through untouched
-        self.readLoop()
-    }
+packetFlow.readPackets { packets, protocols in
+    for p in packets { cockpit?.feed(p) }                 // observe
+    self.packetFlow.write(packets, withProtocols: protocols) // pass through / warren routes
+    self.readLoop()
 }
-// Render UI from cockpit.boardJSON() on a timer.
 ```
 
-## Android — VpnService (sketch)
+Android — `VpnService`:
 
 ```kotlin
-val cockpit = Mobile.newCockpit()
-val input = FileInputStream(tunFd.fileDescriptor)
-val buf = ByteArray(65535)
-while (running) {
-    val n = input.read(buf)
-    if (n > 0) cockpit.feed(buf.copyOf(n))           // observe
-    // forward buf to the real network (pass through untouched)
-}
-// Render UI from cockpit.boardJSON() on a timer.
+val n = input.read(buf)
+if (n > 0) cockpit.feed(buf.copyOf(n))   // observe
+// warren forwards buf to its serverless-VPN exit (mode A) or straight out (mode B)
 ```
-
-Everything the desktop does — SNI, TLS version, certificate-MITM, DNS-redirect
-detection — runs identically here, because it is the same `internal/live` core.

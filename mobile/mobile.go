@@ -3,13 +3,13 @@
 // (string, []byte), so `gomobile bind` produces a clean Android .aar and iOS
 // .xcframework.
 //
-// On the phone there is no raw-socket capture, so the OS routes traffic through
-// an on-device VPN tunnel — iOS NEPacketTunnelProvider or Android VpnService.
-// The native provider receives each IP packet, hands it to Feed, and reads Board
-// or BoardJSON to render the live UI. Exactly the same analysis as the desktop
-// tap runs here (SNI, TLS version, certificate MITM, DNS redirect), because it
-// is the same core. Packets are only observed — read, never held, modified, or
-// re-injected by Lumra — so the tunnel stays monitor-only.
+// Role boundary: Lumra is a DIAGNOSIS engine, not a VPN. It only observes —
+// packets are read, never held, modified, routed, or re-injected. Routing around
+// blocks (the serverless-VPN role) belongs to warren. On mobile Lumra is
+// therefore source-agnostic: warren owns the tunnel and feeds packets to Feed
+// (primary), or a standalone monitoring shell supplies its own monitor-only
+// capture. Feed is the warren↔Lumra seam; Lumra returns a verdict, never a
+// reroute. See README.md. Same core, same analysis as the desktop tap.
 //
 // Bind:
 //
