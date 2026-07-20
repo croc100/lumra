@@ -14,6 +14,7 @@ const (
 	IPBlocking    Type = "IP_BLOCKING"    // destination IP blackholed/dropped
 	TLSMITM       Type = "TLS_MITM"       // certificate substitution
 	TLSDowngrade  Type = "TLS_DOWNGRADE"  // TLS 1.3 stripped to force a readable handshake
+	DoHBlocking   Type = "DOH_BLOCKING"   // the encrypted-DNS (DoH) channel itself is being blocked
 	BlockPage     Type = "BLOCK_PAGE"     // block/notice page injected
 	Throttling    Type = "THROTTLING"     // target-selective rate limiting
 	LocalIssue    Type = "LOCAL_ISSUE"    // the user's own network is at fault
@@ -44,7 +45,7 @@ func NatureOf(t Type) Nature {
 	switch t {
 	case OK:
 		return NatureNone
-	case DNSTampering, SNIFiltering, RSTInjection, IPBlocking, BlockPage:
+	case DNSTampering, SNIFiltering, RSTInjection, IPBlocking, BlockPage, DoHBlocking:
 		return NatureControl
 	case TLSMITM, TLSDowngrade:
 		return NatureSurveillance

@@ -25,12 +25,13 @@ type dnsSource struct {
 	doh        string // if set, query over DoH-JSON instead of plaintext UDP
 }
 
+// dnsSources are the plaintext resolvers Lumra compares against ground truth.
+// DoH ground truth is gathered separately via the resilient provider pool (see
+// groundTruthDoH in doh.go) so a single blocked DoH endpoint cannot blind us.
 var dnsSources = []dnsSource{
 	{name: "system", server: ""},
 	{name: "public-google", server: "8.8.8.8:53"},
 	{name: "public-cloudflare", server: "1.1.1.1:53"},
-	{name: "doh-cloudflare", groundTrue: true, doh: "https://cloudflare-dns.com/dns-query"},
-	{name: "doh-google", groundTrue: true, doh: "https://dns.google/resolve"},
 }
 
 // dnsReason names which injection signature fired, for the evidence line.
@@ -73,7 +74,6 @@ func DNS(ctx context.Context, domain string) *DNSFinding {
 		NotFound: map[string]bool{},
 	}
 
-	gt := map[string]bool{}
 	for _, s := range dnsSources {
 		ips, err := s.lookup(ctx, domain)
 		if err != nil {
@@ -86,16 +86,11 @@ func DNS(ctx context.Context, domain string) *DNSFinding {
 		}
 		sort.Strings(ips)
 		f.Answers[s.name] = ips
-		if s.groundTrue {
-			for _, ip := range ips {
-				gt[ip] = true
-			}
-		}
 	}
-	for ip := range gt {
-		f.GroundTruth = append(f.GroundTruth, ip)
-	}
-	sort.Strings(f.GroundTruth)
+
+	// Ground truth from the resilient DoH pool: a union across independent
+	// operators, tolerant of any one being blocked.
+	f.GroundTruth, _ = groundTruthDoH(ctx, domain)
 
 	// Duplicate-response probe against a plaintext public resolver: an injected
 	// answer races the real one, so one query draws two distinct responses.
@@ -160,11 +155,13 @@ func (f *DNSFinding) assess() {
 	sort.Strings(f.DivergentPublic)
 }
 
-// ResolveDoH returns tamper-resistant ground-truth IPv4 addresses for domain by
-// querying Cloudflare's DoH-JSON endpoint. It is the resolver the live cockpit's
-// enforcer uses to write a correct override when DNS tampering is detected.
+// ResolveDoH returns tamper-resistant ground-truth IPv4 addresses for domain,
+// trying the DoH provider pool in order so a single blocked operator does not
+// stop the resolution. It is the resolver the live cockpit's enforcer uses to
+// write a correct override when DNS tampering is detected.
 func ResolveDoH(ctx context.Context, domain string) ([]string, error) {
-	return dohLookup(ctx, "https://cloudflare-dns.com/dns-query", domain)
+	ips, _, err := resolveDoHPool(ctx, domain)
+	return ips, err
 }
 
 // lookup resolves domain via this source, returning IPv4 addresses.

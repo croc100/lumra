@@ -39,6 +39,11 @@ func Diagnose(ctx context.Context, target string) *verdict.Verdict {
 	// Self-identifying block page (HTTP): names the operator when present.
 	probe.BlockPage(ctx, target).Contribute(v)
 
+	// Adversarial resilience: is the tamper-resistant DoH channel itself being
+	// blocked? Only asserts as a headline when no stronger target verdict was
+	// reached; otherwise it is recorded as context.
+	probe.DoHHealth(ctx).Contribute(v)
+
 	// Apply control last: a dead local network overrides target-specific findings.
 	control.Contribute(v)
 
