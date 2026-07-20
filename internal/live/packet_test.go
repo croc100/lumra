@@ -21,6 +21,19 @@ func ipv4(proto byte, src, dst [4]byte, l4 []byte) []byte {
 	return append(h, l4...)
 }
 
+// ipv6 wraps an L4 payload in an IPv6 header for proto (6 TCP, 17 UDP), with no
+// extension headers.
+func ipv6(proto byte, src, dst [16]byte, l4 []byte) []byte {
+	h := make([]byte, 40)
+	h[0] = 0x60 // version 6
+	binary.BigEndian.PutUint16(h[4:6], uint16(len(l4)))
+	h[6] = proto // next header
+	h[7] = 64    // hop limit
+	copy(h[8:24], src[:])
+	copy(h[24:40], dst[:])
+	return append(h, l4...)
+}
+
 // tcpSeg builds a minimal TCP segment (no options) with the given ports/flags.
 func tcpSeg(sport, dport uint16, flags byte, payload []byte) []byte {
 	t := make([]byte, 20)
@@ -78,6 +91,48 @@ func TestDispatcherIgnoresCleanDNS(t *testing.T) {
 	newDispatcher(emit).handle(pkt, time.Now())
 	if len(*evs) != 0 {
 		t.Fatalf("clean DNS answer should emit nothing, got %+v", *evs)
+	}
+}
+
+func TestDispatcherIPv6ClientHello(t *testing.T) {
+	client := [16]byte{0x20, 0x01, 0x0d, 0xb8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2}
+	server := [16]byte{0x26, 0x06, 0x28, 0x00, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1}
+	hello := realClientHello(t, "v6.example.com")
+	pkt := ipv6(protoTCP, client, server, tcpSeg(50000, 443, 0x18, hello))
+
+	evs, emit := collect()
+	newDispatcher(emit).handle(pkt, time.Now())
+	if len(*evs) != 1 || (*evs)[0].Kind != ClientHello || (*evs)[0].Domain != "v6.example.com" {
+		t.Fatalf("expected an IPv6 ClientHello event for v6.example.com, got %+v", *evs)
+	}
+}
+
+func TestDispatcherIPv6Reset(t *testing.T) {
+	client := [16]byte{0x20, 0x01, 0x0d, 0xb8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2}
+	server := [16]byte{0x26, 0x06, 0x28, 0x00, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1}
+	hello := realClientHello(t, "reset6.example.com")
+	d := newDispatcher(func(Event) {})
+
+	// Establish the flow with a ClientHello, then feed an inbound RST from :443.
+	d.handle(ipv6(protoTCP, client, server, tcpSeg(50000, 443, 0x18, hello)), time.Now())
+
+	var evs []Event
+	d.emit = func(e Event) { evs = append(evs, e) }
+	rst := ipv6(protoTCP, server, client, tcpSeg(443, 50000, flagRST, nil))
+	d.handle(rst, time.Now())
+
+	if len(evs) != 1 || evs[0].Kind != Reset || evs[0].Domain != "reset6.example.com" {
+		t.Fatalf("expected an IPv6 Reset event attributed to reset6.example.com, got %+v", evs)
+	}
+}
+
+func TestParseIPv6RejectsExtensionHeaders(t *testing.T) {
+	// Next header 0 (hop-by-hop) is not TCP/UDP: parser must decline, not misread.
+	client := [16]byte{0x20, 0x01}
+	server := [16]byte{0x26, 0x06}
+	pkt := ipv6(0, client, server, make([]byte, 8))
+	if _, ok := parseIPPacket(pkt); ok {
+		t.Fatal("IPv6 with an extension-header next-header should be rejected")
 	}
 }
 
