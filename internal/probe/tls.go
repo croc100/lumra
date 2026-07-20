@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/croc100/lumra/internal/verdict"
@@ -35,24 +36,84 @@ type tlsAttempt struct {
 }
 
 // TLSFinding compares a handshake carrying the target SNI against one carrying a
-// benign SNI on the same IP.
+// benign SNI on the same IP. Target/Benign are the representative (majority-vote)
+// attempts; the *Trials/*Resets counts carry the repeated-trial evidence used to
+// tell a deterministic block from a probabilistic one and to filter noise.
 type TLSFinding struct {
 	Domain string
 	IP     string
 	Target tlsAttempt
 	Benign tlsAttempt
+
+	TargetTrials, TargetResets int
+	BenignTrials, BenignResets int
 }
 
-// TLS probes ip:443 twice — once with the target SNI, once with a benign SNI —
-// to detect SNI-based filtering. ip should be a ground-truth address (DoH) so a
-// poisoned DNS answer does not send the probe to a sinkhole.
+// TLS probes ip:443 with the target SNI and with a benign SNI, repeating each arm
+// tlsTrials times so a stray reset is filtered as noise and a probabilistic block
+// is caught. ip should be a ground-truth address (DoH) so a poisoned DNS answer
+// does not send the probe to a sinkhole.
 func TLS(ctx context.Context, domain, ip string) *TLSFinding {
-	return &TLSFinding{
-		Domain: domain,
-		IP:     ip,
-		Target: handshake(ctx, ip, domain),
-		Benign: handshake(ctx, ip, benignSNI),
+	f := &TLSFinding{Domain: domain, IP: ip}
+	target := runTrials(ctx, ip, domain, tlsTrials)
+	benign := runTrials(ctx, ip, benignSNI, tlsTrials)
+	f.Target, f.TargetResets = summarize(target)
+	f.Benign, f.BenignResets = summarize(benign)
+	f.TargetTrials, f.BenignTrials = len(target), len(benign)
+	return f
+}
+
+// runTrials performs n handshakes to ip with sni concurrently and returns each
+// attempt. Concurrency keeps the repeated measurement within the time budget.
+func runTrials(ctx context.Context, ip, sni string, n int) []tlsAttempt {
+	out := make([]tlsAttempt, n)
+	var wg sync.WaitGroup
+	for i := 0; i < n; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			out[i] = handshake(ctx, ip, sni)
+		}(i)
 	}
+	wg.Wait()
+	return out
+}
+
+// summarize folds repeated attempts into one representative attempt (by majority
+// vote, so a lone transient reset does not flip the outcome) and the reset count.
+// Certificate details are taken from the first completed handshake, so cert
+// substitution is still caught even when some trials were reset.
+func summarize(attempts []tlsAttempt) (tlsAttempt, int) {
+	n := len(attempts)
+	if n == 0 {
+		return tlsAttempt{}, 0
+	}
+	var resets, hs, conn, tmo int
+	rep := tlsAttempt{SNI: attempts[0].SNI, Err: attempts[0].Err}
+	for _, a := range attempts {
+		if a.Reset {
+			resets++
+		}
+		if a.HandshakeOK {
+			hs++
+		}
+		if a.Connected {
+			conn++
+		}
+		if a.Timeout {
+			tmo++
+		}
+		if a.HandshakeOK && rep.cert == nil {
+			rep.cert = a.cert
+			rep.CertUntrusted, rep.CertExpired = a.CertUntrusted, a.CertExpired
+			rep.CertHostErr, rep.CertSubject = a.CertHostErr, a.CertSubject
+		}
+	}
+	rep.Reset = resets*2 > n
+	rep.HandshakeOK = hs*2 > n
+	rep.Connected = conn*2 > n
+	rep.Timeout = tmo*2 > n
+	return rep, resets
 }
 
 func handshake(ctx context.Context, ip, sni string) tlsAttempt {
@@ -181,9 +242,45 @@ func (f *TLSFinding) Contribute(v *verdict.Verdict) {
 		return
 	}
 
-	// Strongest block signal: target SNI is reset while a benign SNI is accepted
-	// on the same IP. That isolates the reset to the SNI value → SNI filtering.
-	if f.Target.Reset && (f.Benign.HandshakeOK || (f.Benign.Connected && !f.Benign.Reset)) {
+	benignClean := f.Benign.HandshakeOK || (f.Benign.Connected && !f.Benign.Reset)
+
+	// Repeated-trial SNI filtering: with the benign arm clean, reason about the
+	// target's reset *rate* across trials. A consistent reset is a deterministic
+	// block (High); a partial reset is probabilistic/residual censorship (Medium);
+	// a lone reset is filtered as noise and never asserted.
+	if f.TargetTrials > 0 && benignClean {
+		switch p := classifyResetPattern(f.TargetResets, f.TargetTrials); p {
+		case patternConsistent:
+			v.Add("TLS", verdict.Fail, fmt.Sprintf(
+				"SNI=%s → reset on all %d attempts; SNI=%s → accepted on same IP %s",
+				f.Domain, f.TargetTrials, benignSNI, f.IP))
+			v.Type = verdict.SNIFiltering
+			v.Confidence = patternConfidence(p)
+			v.Cause = "TLS connections carrying the target SNI are reset by a middlebox, " +
+				"while the same IP completes a handshake with a benign SNI — the reset " +
+				"is triggered by the SNI value, the signature of SNI-based filtering."
+			return
+		case patternIntermittent:
+			v.Add("TLS", verdict.Fail, fmt.Sprintf(
+				"SNI=%s → reset on %d of %d attempts; SNI=%s → accepted on same IP %s — probabilistic SNI filtering",
+				f.Domain, f.TargetResets, f.TargetTrials, benignSNI, f.IP))
+			v.Type = verdict.SNIFiltering
+			v.Confidence = patternConfidence(p)
+			v.Cause = "Connections carrying the target SNI are reset on some but not all attempts, " +
+				"while the same IP always completes with a benign SNI — probabilistic (residual/load-based) " +
+				"SNI filtering, where the middlebox blocks a fraction of connections rather than every one."
+			return
+		case patternNoise:
+			v.Add("TLS", verdict.Info, fmt.Sprintf(
+				"SNI=%s reset once in %d attempts (benign SNI clean) — treated as transient noise, not asserted as filtering",
+				f.Domain, f.TargetTrials))
+			// fall through to report the representative handshake if it was OK.
+		}
+	}
+
+	// Single-shot fallback (no trial data, e.g. direct callers): target SNI reset
+	// while a benign SNI is accepted on the same IP → SNI filtering.
+	if f.TargetTrials == 0 && f.Target.Reset && benignClean {
 		v.Add("TLS", verdict.Fail, fmt.Sprintf(
 			"SNI=%s → connection reset; SNI=%s → accepted on same IP %s",
 			f.Domain, benignSNI, f.IP))
