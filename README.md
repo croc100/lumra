@@ -42,6 +42,11 @@ Then:
 lumra diagnose example.com              # human-readable verdict
 lumra diagnose example.com --json       # machine-readable
 lumra diagnose example.com --report report.html   # shareable evidence page
+lumra diagnose example.com --bundle b.json --ooni  # signed evidence + OONI export
+
+lumra live                              # passive cockpit of every domain you touch
+lumra watch example.com                 # continuous monitoring + blocked-at timeline
+lumra verify b.json                     # check a signed measurement bundle
 ```
 
 Deep RST/TTL attribution needs a raw socket — run elevated (`sudo` /
@@ -49,11 +54,14 @@ Deep RST/TTL attribution needs a raw socket — run elevated (`sudo` /
 
 ## Status
 
-**v0.1.0 shipped.** The measurement engine and CLI are live: DNS
-(tampering / NXDOMAIN / duplicate-response injection), TLS/SNI filtering,
-TLS MITM, IP blocking, RST/TTL attribution, throttling, and self-identifying
-block pages — plus a browser extension. See [ROADMAP.md](ROADMAP.md) for the
-path to hosted monitoring (P2) and the opt-in vantage network (P3).
+**v0.2.0 shipped.** The measurement engine, CLI, and a live passive cockpit are
+out. Detection spans DNS (tampering / NXDOMAIN / duplicate-response injection),
+TLS/SNI filtering, TLS MITM, TLS 1.3 downgrade, IP blocking, RST/TTL
+attribution, throttling, self-identifying block pages, and modern protocols —
+QUIC/HTTP-3, ECH, and DoH blocking. Plus continuous monitoring (`lumra watch`),
+a passive cockpit (`lumra live`), signed/OONI-exportable evidence bundles, a
+browser extension, and iOS/Android app shells. See [ROADMAP.md](ROADMAP.md) for
+the path to hosted monitoring (P2) and the opt-in vantage network (P3).
 
 ---
 

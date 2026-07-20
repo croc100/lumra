@@ -3,8 +3,9 @@
 **"I control my own internet."** — diagnose the cause and type of internet
 censorship and interference.
 
-This is Lumra's public roadmap. **v0.1.0 is shipped** — the measurement engine
-and CLI are live (`brew install croc100/tap/lumra`). P2/P3 below are directional.
+This is Lumra's public roadmap. **v0.2.0 is shipped** — the measurement engine,
+CLI, and a live passive cockpit are all out (`brew install croc100/tap/lumra`).
+P2/P3 below are directional.
 
 Status legend: ✅ done · 🚧 in progress · ⬜ planned
 
@@ -16,7 +17,8 @@ Status legend: ✅ done · 🚧 in progress · ⬜ planned
 |-------|-------|--------|
 | **P0 — Engine** | Local measurement + classification core | ✅ shipped in v0.1.0 |
 | **P1 — CLI** | `lumra diagnose <target>` one-shot analysis | ✅ shipped in v0.1.0 |
-| **P2 — SaaS** | Hosted dashboard + historical trends | ⬜ planned |
+| **P1.5 — Live & Deep Probes** | Passive cockpit, modern-protocol coverage, evidence bundles, mobile shells | ✅ shipped in v0.2.0 |
+| **P2 — SaaS** | Hosted dashboard + historical trends | 🚧 in progress |
 | **P3 — Network effect** | Aggregate, opt-in vantage data | ⬜ planned |
 
 ---
@@ -54,6 +56,38 @@ Put the engine in users' hands as a single command.
 
 **Delivered:** cross-platform CLI (`brew install croc100/tap/lumra`), no account
 required. Deep RST/TTL attribution needs a raw socket (run elevated).
+
+---
+
+## P1.5 — Live Cockpit & Deep Probes (shipped in v0.2.0)
+
+Past point-in-time diagnosis: continuous, passive, and hard-to-fool sensing.
+
+- ✅ `lumra live` — passive cockpit of every domain your machine touches; TLS
+  metadata tracker + SNI parser, ClientHello reassembly across TCP segments,
+  IPv6, macOS (BPF) / Linux / Windows (raw) tap backends. Pure-passive by
+  default; `--active` opts into confirmation probes.
+- ✅ `lumra watch` — continuous monitoring with a blocked-at timeline and
+  auto-escalation/drill-down.
+- ✅ Modern-protocol coverage — **QUIC/HTTP-3** block detection (Version
+  Negotiation), **ECH** block detection (reset of Encrypted ClientHello),
+  **TLS 1.3 downgrade** detection (surveillance signal), and **DoH-blocking**
+  resilience (multi-provider pool fallback + block detection).
+- ✅ Passive interference detection — DNS-redirect and TLS-MITM caught on the
+  wire via handshake reassembly + cert-chain check, with attribution/authority
+  and site-down disambiguation.
+- ✅ Un-foolable detection arc — provenance-precise RST detection (kernel truth,
+  not text matching), repeated-trial robustness (catches probabilistic blocking,
+  kills false positives), and un-fingerprintable rotating control SNI.
+- ✅ Signed evidence — Ed25519-signed, tamper-evident measurement bundles
+  (`--bundle`) + OONI export (`--ooni`) and `lumra verify`.
+- ✅ Mobile — standalone iOS/Android monitoring app shells + a gomobile-bindable
+  Cockpit facade (observe-only; circumvention stays in [Warren](https://github.com/croc100/warren)).
+
+**Delivered:** verdict taxonomy now spans OK, DNS_TAMPERING, SNI_FILTERING,
+RST_INJECTION, IP_BLOCKING, TLS_MITM, TLS_DOWNGRADE, ECH_BLOCKING, DOH_BLOCKING,
+QUIC_BLOCKING, BLOCK_PAGE, THROTTLING, LOCAL_ISSUE, GENUINE_OUTAGE, INCONCLUSIVE —
+each folded to a control / surveillance / degradation / fault nature.
 
 ---
 
