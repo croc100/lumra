@@ -1,0 +1,16 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "lumra-cloud",
+  "main": "src/index.ts",
+  "compatibility_date": "2025-07-01",
+  "observability": {
+    "enabled": true
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "lumra",
+      "database_id": "PLACEHOLDER_RUN_wrangler_d1_create_lumra"
+    }
+  ]
+}
