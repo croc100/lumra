@@ -3,11 +3,15 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -32,6 +36,7 @@ func usage() {
 	fmt.Fprintln(os.Stderr, "usage:\n"+
 		"  lumra diagnose <domain> [--json] [--report <file.html>] [--bundle <file.json>] [--ooni <file.json>]\n"+
 		"  lumra verify <bundle.json>          (check a signed evidence bundle)\n"+
+		"  lumra push <domain> | --bundle <file.json> [--endpoint <url>] [--asn ..] [--country ..]\n"+
 		"  lumra watch <domain> [--interval 30s] [--json]\n"+
 		"  lumra live [--active]               (passive cockpit; --active adds background confirmation)\n"+
 		"  lumra install-host <extension-id>   (register the browser native host)\n"+
@@ -63,6 +68,8 @@ func main() {
 		runLive(os.Args[2:])
 	case "verify":
 		runVerify(os.Args[2:])
+	case "push":
+		runPush(os.Args[2:])
 	case "nm-host":
 		// Speaks the browser native-messaging protocol on stdin/stdout.
 		if err := nativemsg.Serve(os.Stdin, os.Stdout); err != nil {
@@ -230,6 +237,147 @@ func runVerify(args []string) {
 	fmt.Printf("  tool:       lumra %s\n", m.ToolVersion)
 	fmt.Printf("  signed by:  %s\n", evidence.KeyID(pub))
 	fmt.Printf("  digest:     %s\n", b.Digest)
+}
+
+// defaultCloudEndpoint is the hosted Lumra Cloud ingest base. Override with
+// --endpoint or the LUMRA_CLOUD environment variable.
+const defaultCloudEndpoint = "https://app.lumra.crode.net"
+
+// ingestBody is the v1 ingest wire format. Measurement is the verbatim canonical
+// bytes that were signed, carried as a JSON string so the server verifies the
+// Ed25519 signature over exactly those bytes without re-deriving canonical JSON.
+type ingestBody struct {
+	Measurement string             `json:"measurement"`
+	Digest      string             `json:"digest"`
+	Signature   evidence.Signature `json:"signature"`
+	ASN         string             `json:"asn,omitempty"`
+	Country     string             `json:"country,omitempty"`
+}
+
+// runPush submits a signed measurement bundle to a hosted Lumra Cloud endpoint.
+// It either diagnoses a target fresh and signs the result, or pushes an existing
+// bundle file (--bundle).
+func runPush(args []string) {
+	var target, bundlePath, endpoint, asn, country string
+	for i := 0; i < len(args); i++ {
+		switch args[i] {
+		case "--bundle", "-bundle":
+			i++
+			if i >= len(args) {
+				fmt.Fprintln(os.Stderr, "--bundle needs a file path")
+				os.Exit(2)
+			}
+			bundlePath = args[i]
+		case "--endpoint", "-endpoint":
+			i++
+			if i >= len(args) {
+				fmt.Fprintln(os.Stderr, "--endpoint needs a URL")
+				os.Exit(2)
+			}
+			endpoint = args[i]
+		case "--asn", "-asn":
+			i++
+			if i >= len(args) {
+				fmt.Fprintln(os.Stderr, "--asn needs a value")
+				os.Exit(2)
+			}
+			asn = args[i]
+		case "--country", "-country":
+			i++
+			if i >= len(args) {
+				fmt.Fprintln(os.Stderr, "--country needs a value")
+				os.Exit(2)
+			}
+			country = args[i]
+		default:
+			if target == "" {
+				target = args[i]
+			}
+		}
+	}
+	if endpoint == "" {
+		endpoint = os.Getenv("LUMRA_CLOUD")
+	}
+	if endpoint == "" {
+		endpoint = defaultCloudEndpoint
+	}
+
+	// Obtain a signed bundle: from a file, or by diagnosing the target now.
+	var bundle *evidence.Bundle
+	switch {
+	case bundlePath != "":
+		data, err := os.ReadFile(bundlePath)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "push:", err)
+			os.Exit(1)
+		}
+		if bundle, err = evidence.Decode(data); err != nil {
+			fmt.Fprintln(os.Stderr, "push:", err)
+			os.Exit(1)
+		}
+	case target != "":
+		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+		defer cancel()
+		now := time.Now()
+		v := engine.Diagnose(ctx, target)
+		priv, err := evidence.LoadOrCreateKey()
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "push:", err)
+			os.Exit(1)
+		}
+		if bundle, err = evidence.Sign(v, now, version, priv); err != nil {
+			fmt.Fprintln(os.Stderr, "push:", err)
+			os.Exit(1)
+		}
+	default:
+		fmt.Fprintln(os.Stderr, "usage: lumra push <domain> | --bundle <file.json>")
+		os.Exit(2)
+	}
+
+	// Verify locally before shipping — never push a bundle we can't stand behind.
+	if _, err := evidence.Verify(bundle); err != nil {
+		fmt.Fprintln(os.Stderr, "push: refusing to send an unverifiable bundle:", err)
+		os.Exit(1)
+	}
+	canonical, err := bundle.CanonicalMeasurement()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "push:", err)
+		os.Exit(1)
+	}
+
+	body, err := json.Marshal(ingestBody{
+		Measurement: string(canonical),
+		Digest:      bundle.Digest,
+		Signature:   bundle.Signature,
+		ASN:         asn,
+		Country:     country,
+	})
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "push:", err)
+		os.Exit(1)
+	}
+
+	url := strings.TrimRight(endpoint, "/") + "/v1/ingest"
+	req, err := http.NewRequest(http.MethodPost, url, bytes.NewReader(body))
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "push:", err)
+		os.Exit(1)
+	}
+	req.Header.Set("content-type", "application/json")
+	client := &http.Client{Timeout: 15 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "push:", err)
+		os.Exit(1)
+	}
+	defer resp.Body.Close()
+	respBody, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+
+	if resp.StatusCode >= 400 {
+		fmt.Fprintf(os.Stderr, "push failed (%s): %s\n", resp.Status, strings.TrimSpace(string(respBody)))
+		os.Exit(1)
+	}
+	fmt.Printf("pushed to %s — %s\n", url, strings.TrimSpace(string(respBody)))
 }
 
 func runWatch(args []string) {

@@ -154,6 +154,14 @@ func (b *Bundle) Encode() ([]byte, error) {
 	return json.MarshalIndent(b, "", "  ")
 }
 
+// CanonicalMeasurement returns the exact bytes Sign covered for this bundle —
+// the verbatim signed message — regardless of how the bundle's measurement was
+// later reformatted (e.g. indented on disk). Callers pushing a bundle to a
+// verifier that checks the signature over raw bytes must transmit these bytes.
+func (b *Bundle) CanonicalMeasurement() ([]byte, error) {
+	return canonicalMeasurement(b.Measurement)
+}
+
 // canonicalMeasurement reproduces the exact bytes that Sign covers, by parsing
 // the (possibly reformatted) measurement JSON back into the struct and
 // re-marshaling it with deterministic field order.
