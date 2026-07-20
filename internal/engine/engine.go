@@ -28,6 +28,9 @@ func Diagnose(ctx context.Context, target string) *verdict.Verdict {
 		// Surveillance axis: a middlebox stripping TLS 1.3 to keep the SNI/cert
 		// readable. Runs after TLS so a hard block (MITM/SNI) takes precedence.
 		probe.Downgrade(ctx, target, ip).Contribute(v)
+		// ECH-specific blocking: the encrypted-ClientHello handshake is reset
+		// while a plain one works — the path is keeping the SNI visible.
+		probe.ECH(ctx, target, ip).Contribute(v)
 		probe.RST(ctx, ip).Contribute(v)
 		// Throughput last of the target-IP probes: only a weaker throttling
 		// signal, and it must not mask a hard block found above.

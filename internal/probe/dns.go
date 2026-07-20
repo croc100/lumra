@@ -362,6 +362,11 @@ func containsStr(ss []string, s string) bool {
 
 // buildAQuery marshals a standard recursive A-record query for domain.
 func buildAQuery(id uint16, domain string) ([]byte, error) {
+	return buildQuery(id, domain, dnsmessage.TypeA)
+}
+
+// buildQuery marshals a recursive query for domain of the given record type.
+func buildQuery(id uint16, domain string, qtype dnsmessage.Type) ([]byte, error) {
 	name, err := dnsmessage.NewName(fqdn(domain))
 	if err != nil {
 		return nil, err
@@ -369,7 +374,7 @@ func buildAQuery(id uint16, domain string) ([]byte, error) {
 	msg := dnsmessage.Message{
 		Header: dnsmessage.Header{ID: id, RecursionDesired: true},
 		Questions: []dnsmessage.Question{{
-			Name: name, Type: dnsmessage.TypeA, Class: dnsmessage.ClassINET,
+			Name: name, Type: qtype, Class: dnsmessage.ClassINET,
 		}},
 	}
 	return msg.Pack()
