@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/croc100/lumra/internal/engine"
+	"github.com/croc100/lumra/internal/evidence"
 	"github.com/croc100/lumra/internal/live"
 	"github.com/croc100/lumra/internal/nativemsg"
 	"github.com/croc100/lumra/internal/probe"
@@ -29,7 +30,8 @@ var (
 
 func usage() {
 	fmt.Fprintln(os.Stderr, "usage:\n"+
-		"  lumra diagnose <domain> [--json] [--report <file.html>]\n"+
+		"  lumra diagnose <domain> [--json] [--report <file.html>] [--bundle <file.json>] [--ooni <file.json>]\n"+
+		"  lumra verify <bundle.json>          (check a signed evidence bundle)\n"+
 		"  lumra watch <domain> [--interval 30s] [--json]\n"+
 		"  lumra live [--active]               (passive cockpit; --active adds background confirmation)\n"+
 		"  lumra install-host <extension-id>   (register the browser native host)\n"+
@@ -59,6 +61,8 @@ func main() {
 		runWatch(os.Args[2:])
 	case "live":
 		runLive(os.Args[2:])
+	case "verify":
+		runVerify(os.Args[2:])
 	case "nm-host":
 		// Speaks the browser native-messaging protocol on stdin/stdout.
 		if err := nativemsg.Serve(os.Stdin, os.Stdout); err != nil {
@@ -84,7 +88,7 @@ func main() {
 
 func runDiagnose(args []string) {
 	// Parse permissively: flags may appear before or after the target.
-	var target, reportPath string
+	var target, reportPath, bundlePath, ooniPath string
 	var jsonOut bool
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
@@ -97,6 +101,20 @@ func runDiagnose(args []string) {
 			}
 			i++
 			reportPath = args[i]
+		case "--bundle", "-bundle":
+			if i+1 >= len(args) {
+				fmt.Fprintln(os.Stderr, "--bundle needs a file path")
+				os.Exit(2)
+			}
+			i++
+			bundlePath = args[i]
+		case "--ooni", "-ooni":
+			if i+1 >= len(args) {
+				fmt.Fprintln(os.Stderr, "--ooni needs a file path")
+				os.Exit(2)
+			}
+			i++
+			ooniPath = args[i]
 		default:
 			if target == "" {
 				target = args[i]
@@ -111,7 +129,52 @@ func runDiagnose(args []string) {
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 
+	now := time.Now()
 	v := engine.Diagnose(ctx, target)
+
+	// A signed bundle backs both --bundle and --ooni: the bundle digest becomes
+	// the OONI report_id, cross-linking the two artifacts. Sign once if either
+	// is requested.
+	var bundle *evidence.Bundle
+	if bundlePath != "" || ooniPath != "" {
+		priv, err := evidence.LoadOrCreateKey()
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "evidence:", err)
+			os.Exit(1)
+		}
+		bundle, err = evidence.Sign(v, now, version, priv)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "evidence:", err)
+			os.Exit(1)
+		}
+	}
+
+	if bundlePath != "" {
+		data, err := bundle.Encode()
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "bundle:", err)
+			os.Exit(1)
+		}
+		if err := os.WriteFile(bundlePath, data, 0o644); err != nil {
+			fmt.Fprintln(os.Stderr, "bundle:", err)
+			os.Exit(1)
+		}
+		fmt.Fprintln(os.Stderr, "signed bundle written:", bundlePath, "("+bundle.Signature.KeyID+")")
+	}
+
+	if ooniPath != "" {
+		m := evidence.OONI(v, now, version, bundle.Digest)
+		data, err := m.Encode()
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "ooni:", err)
+			os.Exit(1)
+		}
+		if err := os.WriteFile(ooniPath, data, 0o644); err != nil {
+			fmt.Fprintln(os.Stderr, "ooni:", err)
+			os.Exit(1)
+		}
+		fmt.Fprintln(os.Stderr, "OONI measurement written:", ooniPath)
+	}
 
 	if reportPath != "" {
 		html, err := report.HTML(v, time.Now())
@@ -133,6 +196,40 @@ func runDiagnose(args []string) {
 		return
 	}
 	printVerdict(v)
+}
+
+func runVerify(args []string) {
+	if len(args) < 1 {
+		fmt.Fprintln(os.Stderr, "usage: lumra verify <bundle.json>")
+		os.Exit(2)
+	}
+	data, err := os.ReadFile(args[0])
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "verify:", err)
+		os.Exit(1)
+	}
+	b, err := evidence.Decode(data)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "verify:", err)
+		os.Exit(1)
+	}
+	pub, err := evidence.Verify(b)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "✗ NOT AUTHENTIC —", err)
+		os.Exit(1)
+	}
+	m, err := b.ParseMeasurement()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "verify:", err)
+		os.Exit(1)
+	}
+	fmt.Println("✓ authentic — signature verifies and the measurement is intact")
+	fmt.Printf("  target:     %s\n", m.Target)
+	fmt.Printf("  verdict:    %s (%s)\n", m.Verdict.Type, m.Verdict.Confidence)
+	fmt.Printf("  measured:   %s\n", m.MeasuredAt)
+	fmt.Printf("  tool:       lumra %s\n", m.ToolVersion)
+	fmt.Printf("  signed by:  %s\n", evidence.KeyID(pub))
+	fmt.Printf("  digest:     %s\n", b.Digest)
 }
 
 func runWatch(args []string) {
