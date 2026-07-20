@@ -22,6 +22,10 @@ warren app  (serverless VPN — routes/circumvents)
        └─ Cockpit.BoardJSON()          // → warren renders "who blocked / watched / down"
 ```
 
+> **App shells:** ready-to-build native shells for the standalone mode live in
+> [`apps/`](apps/) — iOS (`NEPacketTunnelProvider` + SwiftUI) and Android
+> (`VpnService` + Compose). Drop in the gomobile framework and build.
+
 ### B. Standalone Lumra app (monitoring only)
 
 For pure monitoring with no warren present, Lumra can run its own **monitor-only**
