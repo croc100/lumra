@@ -137,13 +137,20 @@ func (f *ECHFinding) Contribute(v *verdict.Verdict) {
 // fetchECHConfigList resolves the domain's HTTPS resource record over the DoH
 // pool and returns the ECHConfigList from its "ech" SvcParam, if present.
 func fetchECHConfigList(ctx context.Context, domain string) ([]byte, bool) {
+	rdata, ok := fetchHTTPSRecord(ctx, domain)
+	if !ok {
+		return nil, false
+	}
+	return echFromSvcParams(rdata)
+}
+
+// fetchHTTPSRecord returns the raw RDATA of the domain's DNS HTTPS record,
+// resolved over the resilient DoH pool. Callers parse the SvcParams they need
+// (ech, alpn) from it.
+func fetchHTTPSRecord(ctx context.Context, domain string) ([]byte, bool) {
 	for _, p := range dohProviders {
-		rdata, ok := dohHTTPSRecord(ctx, p, domain)
-		if !ok {
-			continue
-		}
-		if ech, ok := echFromSvcParams(rdata); ok {
-			return ech, true
+		if rdata, ok := dohHTTPSRecord(ctx, p, domain); ok {
+			return rdata, true
 		}
 	}
 	return nil, false
@@ -220,9 +227,15 @@ func firstHTTPSRDATA(msg []byte) ([]byte, bool) {
 }
 
 // echFromSvcParams parses an HTTPS/SVCB RDATA and returns the value of the "ech"
-// SvcParam (key 5). RDATA layout: SvcPriority(2) + TargetName + SvcParams, each
-// param being key(2) + length(2) + value. Fully bounds-checked over wire data.
+// SvcParam (key 5).
 func echFromSvcParams(rdata []byte) ([]byte, bool) {
+	return svcParam(rdata, 5)
+}
+
+// svcParam returns the value of the SvcParam with the given key from an
+// HTTPS/SVCB RDATA. Layout: SvcPriority(2) + TargetName + SvcParams, each param
+// being key(2) + length(2) + value. Fully bounds-checked over wire data.
+func svcParam(rdata []byte, wantKey uint16) ([]byte, bool) {
 	if len(rdata) < 2 {
 		return nil, false
 	}
@@ -248,10 +261,32 @@ func echFromSvcParams(rdata []byte) ([]byte, bool) {
 		if len(p) < vlen {
 			return nil, false
 		}
-		if key == 5 { // ech
+		if key == wantKey {
 			return p[:vlen], true
 		}
 		p = p[vlen:]
 	}
 	return nil, false
+}
+
+// advertisesHTTP3 reports whether an HTTPS/SVCB RDATA lists the "h3" ALPN
+// (SvcParamKey 1), i.e. the server offers HTTP/3 over QUIC. The alpn value is a
+// sequence of length-prefixed protocol-id strings.
+func advertisesHTTP3(rdata []byte) bool {
+	alpn, ok := svcParam(rdata, 1)
+	if !ok {
+		return false
+	}
+	for len(alpn) > 0 {
+		l := int(alpn[0])
+		alpn = alpn[1:]
+		if len(alpn) < l {
+			return false
+		}
+		if string(alpn[:l]) == "h3" {
+			return true
+		}
+		alpn = alpn[l:]
+	}
+	return false
 }

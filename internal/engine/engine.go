@@ -31,6 +31,9 @@ func Diagnose(ctx context.Context, target string) *verdict.Verdict {
 		// ECH-specific blocking: the encrypted-ClientHello handshake is reset
 		// while a plain one works — the path is keeping the SNI visible.
 		probe.ECH(ctx, target, ip).Contribute(v)
+		// QUIC/HTTP3 blocking: UDP/443 dropped for an h3-advertising target to
+		// force traffic onto filterable TCP. Low precedence (transport downgrade).
+		probe.QUIC(ctx, target, ip).Contribute(v)
 		probe.RST(ctx, ip).Contribute(v)
 		// Throughput last of the target-IP probes: only a weaker throttling
 		// signal, and it must not mask a hard block found above.

@@ -17,6 +17,7 @@ const (
 	ECHBlocking   Type = "ECH_BLOCKING"   // Encrypted ClientHello reset to keep the SNI visible
 	DoHBlocking   Type = "DOH_BLOCKING"   // the encrypted-DNS (DoH) channel itself is being blocked
 	BlockPage     Type = "BLOCK_PAGE"     // block/notice page injected
+	QUICBlocking  Type = "QUIC_BLOCKING"  // UDP/443 QUIC blocked to force traffic onto filterable TCP
 	Throttling    Type = "THROTTLING"     // target-selective rate limiting
 	LocalIssue    Type = "LOCAL_ISSUE"    // the user's own network is at fault
 	GenuineOutage Type = "GENUINE_OUTAGE" // the target itself is down
@@ -50,7 +51,7 @@ func NatureOf(t Type) Nature {
 		return NatureControl
 	case TLSMITM, TLSDowngrade, ECHBlocking:
 		return NatureSurveillance
-	case Throttling:
+	case Throttling, QUICBlocking:
 		return NatureDegradation
 	case LocalIssue, GenuineOutage:
 		return NatureFault
