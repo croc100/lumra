@@ -6,6 +6,7 @@ import (
 	"crypto/x509"
 	"errors"
 	"fmt"
+	"math/rand/v2"
 	"net"
 	"strings"
 	"sync"
@@ -14,10 +15,35 @@ import (
 	"github.com/croc100/lumra/internal/verdict"
 )
 
-// benignSNI is an SNI a censor's blocklist will not contain, used as the control
-// arm. example.com is IANA-reserved and never appears on a real block list, so a
-// reset seen only with the target SNI (and not this one) isolates SNI filtering.
+// The control arm needs an SNI a censor will not filter, so that a reset seen
+// only with the target SNI isolates SNI-based filtering. A *fixed* control SNI is
+// a one-dimensional tell: a censor that recognises Lumra's canary can whitelist
+// it and defeat the differential — the probe would be deceived. To stay
+// un-fingerprintable, the control SNI is drawn at random, per probe, from a pool
+// of high-reputation names. A censor cannot special-case the whole pool without
+// whitelisting major sites — which is itself a circumvention hole. example.com
+// stays in the pool (IANA-reserved, never on a real block list) as a safe anchor.
+var controlSNIs = []string{
+	"www.example.com",
+	"www.wikipedia.org",
+	"www.cloudflare.com",
+	"www.microsoft.com",
+	"www.apple.com",
+	"www.mozilla.org",
+	"www.debian.org",
+	"cdn.jsdelivr.net",
+}
+
+// benignSNI is the default control name; live probes randomise via pickControlSNI.
+// Kept as a stable value for evidence in direct-constructed findings and tests.
 const benignSNI = "www.example.com"
+
+// pickControlSNI returns a control SNI chosen uniformly at random from the pool,
+// so the probe's control arm is indistinguishable from ordinary user traffic and
+// cannot be fingerprinted and whitelisted by a censor.
+func pickControlSNI() string {
+	return controlSNIs[rand.IntN(len(controlSNIs))]
+}
 
 // tlsAttempt records the outcome of one handshake to a fixed IP with a given SNI.
 type tlsAttempt struct {
@@ -55,8 +81,15 @@ type TLSFinding struct {
 // does not send the probe to a sinkhole.
 func TLS(ctx context.Context, domain, ip string) *TLSFinding {
 	f := &TLSFinding{Domain: domain, IP: ip}
+	control := pickControlSNI()
+	// A censoring path must not filter the target while resolving/serving the
+	// control; if by bad luck the random control equals the target, fall back to
+	// the reserved anchor so the two arms are always distinct.
+	if control == domain {
+		control = "www.example.com"
+	}
 	target := runTrials(ctx, ip, domain, tlsTrials)
-	benign := runTrials(ctx, ip, benignSNI, tlsTrials)
+	benign := runTrials(ctx, ip, control, tlsTrials)
 	f.Target, f.TargetResets = summarize(target)
 	f.Benign, f.BenignResets = summarize(benign)
 	f.TargetTrials, f.BenignTrials = len(target), len(benign)
@@ -114,6 +147,15 @@ func summarize(attempts []tlsAttempt) (tlsAttempt, int) {
 	rep.Connected = conn*2 > n
 	rep.Timeout = tmo*2 > n
 	return rep, resets
+}
+
+// controlName is the control SNI actually used, for evidence. Falls back to the
+// default anchor when the finding was constructed without a control attempt.
+func (f *TLSFinding) controlName() string {
+	if f.Benign.SNI != "" {
+		return f.Benign.SNI
+	}
+	return benignSNI
 }
 
 func handshake(ctx context.Context, ip, sni string) tlsAttempt {
@@ -253,7 +295,7 @@ func (f *TLSFinding) Contribute(v *verdict.Verdict) {
 		case patternConsistent:
 			v.Add("TLS", verdict.Fail, fmt.Sprintf(
 				"SNI=%s → reset on all %d attempts; SNI=%s → accepted on same IP %s",
-				f.Domain, f.TargetTrials, benignSNI, f.IP))
+				f.Domain, f.TargetTrials, f.controlName(), f.IP))
 			v.Type = verdict.SNIFiltering
 			v.Confidence = patternConfidence(p)
 			v.Cause = "TLS connections carrying the target SNI are reset by a middlebox, " +
@@ -263,7 +305,7 @@ func (f *TLSFinding) Contribute(v *verdict.Verdict) {
 		case patternIntermittent:
 			v.Add("TLS", verdict.Fail, fmt.Sprintf(
 				"SNI=%s → reset on %d of %d attempts; SNI=%s → accepted on same IP %s — probabilistic SNI filtering",
-				f.Domain, f.TargetResets, f.TargetTrials, benignSNI, f.IP))
+				f.Domain, f.TargetResets, f.TargetTrials, f.controlName(), f.IP))
 			v.Type = verdict.SNIFiltering
 			v.Confidence = patternConfidence(p)
 			v.Cause = "Connections carrying the target SNI are reset on some but not all attempts, " +
@@ -283,7 +325,7 @@ func (f *TLSFinding) Contribute(v *verdict.Verdict) {
 	if f.TargetTrials == 0 && f.Target.Reset && benignClean {
 		v.Add("TLS", verdict.Fail, fmt.Sprintf(
 			"SNI=%s → connection reset; SNI=%s → accepted on same IP %s",
-			f.Domain, benignSNI, f.IP))
+			f.Domain, f.controlName(), f.IP))
 		v.Type = verdict.SNIFiltering
 		v.Confidence = verdict.High
 		v.Cause = "TLS connections carrying the target SNI are reset by a middlebox, " +

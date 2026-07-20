@@ -6,6 +6,35 @@ import (
 	"github.com/croc100/lumra/internal/verdict"
 )
 
+// The control SNI must be drawn from a pool (un-fingerprintable), include the
+// reserved anchor, and every entry must be distinct so a censor cannot whitelist
+// a single canary to defeat the SNI-filtering differential.
+func TestControlSNIPool(t *testing.T) {
+	if len(controlSNIs) < 4 {
+		t.Fatalf("control pool too small to resist fingerprinting: %d", len(controlSNIs))
+	}
+	seen := map[string]bool{}
+	anchor := false
+	for _, s := range controlSNIs {
+		if seen[s] {
+			t.Errorf("duplicate control SNI %q", s)
+		}
+		seen[s] = true
+		if s == benignSNI {
+			anchor = true
+		}
+	}
+	if !anchor {
+		t.Errorf("reserved anchor %q must be in the pool", benignSNI)
+	}
+	// pickControlSNI must only ever return pool members.
+	for i := 0; i < 50; i++ {
+		if !seen[pickControlSNI()] {
+			t.Fatal("pickControlSNI returned a name outside the pool")
+		}
+	}
+}
+
 func TestClassifyResetPattern(t *testing.T) {
 	tests := []struct {
 		resets, n int
