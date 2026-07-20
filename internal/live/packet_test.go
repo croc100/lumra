@@ -94,6 +94,30 @@ func TestDispatcherIgnoresCleanDNS(t *testing.T) {
 	}
 }
 
+func TestDispatcherClientHelloSpansSegments(t *testing.T) {
+	client := [4]byte{192, 168, 0, 2}
+	server := [4]byte{93, 184, 216, 34}
+	hello := realClientHello(t, "split.example.com")
+	if len(hello) < 40 {
+		t.Fatal("test ClientHello too small to split meaningfully")
+	}
+	// Split the single ClientHello record across two TCP segments of one flow.
+	cut := len(hello) / 2
+	seg1 := ipv4(protoTCP, client, server, tcpSeg(50000, 443, 0x18, hello[:cut]))
+	seg2 := ipv4(protoTCP, client, server, tcpSeg(50000, 443, 0x18, hello[cut:]))
+
+	evs, emit := collect()
+	d := newDispatcher(emit)
+	d.handle(seg1, time.Now())
+	if len(*evs) != 0 {
+		t.Fatalf("no event should fire on the first partial segment, got %+v", *evs)
+	}
+	d.handle(seg2, time.Now())
+	if len(*evs) != 1 || (*evs)[0].Kind != ClientHello || (*evs)[0].Domain != "split.example.com" {
+		t.Fatalf("expected a reassembled ClientHello for split.example.com, got %+v", *evs)
+	}
+}
+
 func TestDispatcherIPv6ClientHello(t *testing.T) {
 	client := [16]byte{0x20, 0x01, 0x0d, 0xb8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2}
 	server := [16]byte{0x26, 0x06, 0x28, 0x00, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1}

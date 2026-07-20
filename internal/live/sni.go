@@ -17,15 +17,23 @@ func ParseClientHelloSNI(rec []byte) (string, bool) {
 	if len(rec) < 5 || rec[0] != 22 {
 		return "", false
 	}
-	body := rec[5:]
+	return clientHelloSNI(rec[5:])
+}
+
+// clientHelloSNI extracts the SNI from a complete ClientHello handshake message
+// (starting at the 4-byte handshake header). It is the segment-independent core:
+// the single-segment fast path calls it via ParseClientHelloSNI, and the client
+// reassembler calls it on a message rebuilt from several TCP segments — modern
+// ClientHellos routinely exceed one segment (GREASE, post-quantum key shares).
+func clientHelloSNI(msg []byte) (string, bool) {
 	// Handshake header: type(1)=1 ClientHello, length(3).
-	if len(body) < 4 || body[0] != 1 {
+	if len(msg) < 4 || msg[0] != 1 {
 		return "", false
 	}
-	hlen := int(body[1])<<16 | int(body[2])<<8 | int(body[3])
-	body = body[4:]
+	hlen := int(msg[1])<<16 | int(msg[2])<<8 | int(msg[3])
+	body := msg[4:]
 	if len(body) < hlen {
-		return "", false // truncated (SNI may span TCP segments we don't reassemble)
+		return "", false // truncated message
 	}
 	body = body[:hlen]
 

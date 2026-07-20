@@ -25,10 +25,13 @@ type flowKey struct {
 }
 
 // flowState carries the per-connection data the tap accumulates: the domain from
-// the ClientHello and a reassembler for the server's handshake stream.
+// the ClientHello and reassemblers for each direction's handshake stream. chre
+// rebuilds the client's ClientHello (which may span several TCP segments); re
+// rebuilds the server's handshake (ServerHello + certificate).
 type flowState struct {
 	domain string
-	re     hsReassembler
+	chre   hsReassembler // client→server: ClientHello reassembly (SNI)
+	re     hsReassembler // server→client: ServerHello/Certificate reassembly
 }
 
 // l4 is the parsed subset of an IP packet the dispatcher needs. IP addresses are
@@ -80,15 +83,32 @@ func (d *dispatcher) handleTLS(p l4, now time.Time) {
 	switch {
 	case p.dstPort == 443: // outbound to a server
 		key := flowKey{p.dstIP, p.srcPort}
-		if sni, ok := ParseClientHelloSNI(p.payload); ok {
-			d.flows[key] = &flowState{domain: sni}
-			d.emit(Event{Kind: ClientHello, Domain: sni, At: now})
+		st := d.flows[key]
+		if st == nil {
+			st = &flowState{}
+			d.flows[key] = st
+		}
+		if st.domain != "" {
+			return // SNI already read for this flow
+		}
+		// Reassemble the ClientHello across segments, then read its SNI.
+		for _, msg := range st.chre.Feed(p.payload) {
+			if sni, ok := clientHelloSNI(msg); ok {
+				st.domain = sni
+				d.emit(Event{Kind: ClientHello, Domain: sni, At: now})
+				break
+			}
+		}
+		// Not a ClientHello flow (or unreadable): drop the pending entry so a
+		// non-TLS connection on :443 does not leak an empty flow.
+		if st.domain == "" && st.chre.done {
+			delete(d.flows, key)
 		}
 	case p.srcPort == 443: // inbound from a server
 		key := flowKey{p.srcIP, p.dstPort}
 		st := d.flows[key]
-		if st == nil {
-			return // no ClientHello seen for this flow; nothing to attribute
+		if st == nil || st.domain == "" {
+			return // no ClientHello attributed to this flow yet; nothing to attribute
 		}
 		if p.flags&flagRST != 0 {
 			d.emit(Event{Kind: Reset, Domain: st.domain, At: now})
