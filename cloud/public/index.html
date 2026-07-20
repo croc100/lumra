@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Lumra Cloud — interference monitor</title>
+<style>
+  :root {
+    --bg: #f7f8fa; --panel: #fff; --border: #e4e7ec; --text: #1a1d23;
+    --muted: #667085; --accent: #4f46e5;
+    --ok: #12b76a; --ctrl: #d92d20; --surv: #dc6803; --degr: #7839ee; --fault: #667085;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0e1015; --panel: #171a21; --border: #262b36; --text: #e7eaf0;
+      --muted: #8b93a3; --accent: #7c74f5;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+    font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+  header { padding: 24px 20px 8px; max-width: 1100px; margin: 0 auto; }
+  h1 { font-size: 22px; margin: 0; display: flex; align-items: center; gap: 10px; }
+  h1 .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--ok); box-shadow: 0 0 8px var(--ok); }
+  .sub { color: var(--muted); margin: 4px 0 0; }
+  main { max-width: 1100px; margin: 0 auto; padding: 12px 20px 60px; }
+  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin: 16px 0 24px; }
+  .card { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px; }
+  .card .n { font-size: 26px; font-weight: 650; }
+  .card .l { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .04em; }
+  section h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); margin: 24px 0 10px; }
+  .panel { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
+  table { width: 100%; border-collapse: collapse; }
+  th, td { text-align: left; padding: 11px 16px; border-bottom: 1px solid var(--border); }
+  th { font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); font-weight: 600; }
+  tr:last-child td { border-bottom: none; }
+  tbody tr.clickable { cursor: pointer; }
+  tbody tr.clickable:hover { background: color-mix(in srgb, var(--accent) 7%, transparent); }
+  .tag { display: inline-block; padding: 2px 9px; border-radius: 999px; font-size: 12px; font-weight: 600;
+    background: color-mix(in srgb, var(--fault) 15%, transparent); color: var(--fault); }
+  .nature-none { background: color-mix(in srgb, var(--ok) 16%, transparent); color: var(--ok); }
+  .nature-control { background: color-mix(in srgb, var(--ctrl) 16%, transparent); color: var(--ctrl); }
+  .nature-surveillance { background: color-mix(in srgb, var(--surv) 16%, transparent); color: var(--surv); }
+  .nature-degradation { background: color-mix(in srgb, var(--degr) 16%, transparent); color: var(--degr); }
+  .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; color: var(--muted); }
+  .muted { color: var(--muted); }
+  .bad { color: var(--ctrl); font-weight: 600; }
+  .empty { padding: 40px 16px; text-align: center; color: var(--muted); }
+  .row-actions { display: flex; align-items: baseline; justify-content: space-between; }
+  button.link { background: none; border: none; color: var(--accent); cursor: pointer; font: inherit; padding: 0; }
+  .refresh { color: var(--muted); font-size: 12px; }
+</style>
+</head>
+<body>
+<header>
+  <h1><span class="dot"></span> Lumra Cloud</h1>
+  <p class="sub">Hosted interference monitor — signed measurements from the field, verified at ingest.</p>
+</header>
+<main>
+  <div class="cards" id="cards"></div>
+
+  <section>
+    <div class="row-actions">
+      <h2 id="targets-title">Targets</h2>
+      <span class="refresh" id="refresh"></span>
+    </div>
+    <div class="panel"><table>
+      <thead><tr><th>Target</th><th>Measurements</th><th>Interference</th><th>Last seen</th></tr></thead>
+      <tbody id="targets"><tr><td colspan="4" class="empty">Loading…</td></tr></tbody>
+    </table></div>
+  </section>
+
+  <section>
+    <div class="row-actions">
+      <h2 id="events-title">Recent events</h2>
+      <button class="link" id="clear-filter" style="display:none">← all targets</button>
+    </div>
+    <div class="panel"><table>
+      <thead><tr><th>When</th><th>Target</th><th>Verdict</th><th>Nature</th><th>Confidence</th><th>Attribution</th><th>Reporter</th></tr></thead>
+      <tbody id="events"><tr><td colspan="7" class="empty">Loading…</td></tr></tbody>
+    </table></div>
+  </section>
+</main>
+<script>
+const api = (p) => fetch(p).then((r) => r.json());
+const fmtTime = (s) => s ? new Date(s).toLocaleString() : "—";
+const esc = (s) => String(s ?? "").replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
+const natureClass = (n) => "nature-" + (n || "unknown");
+
+async function loadTargets() {
+  const { targets } = await api("/v1/targets");
+  const tbody = document.getElementById("targets");
+  const totalMeasurements = targets.reduce((a, t) => a + t.total, 0);
+  const affected = targets.filter((t) => t.interference > 0).length;
+  document.getElementById("cards").innerHTML = `
+    <div class="card"><div class="n">${targets.length}</div><div class="l">Targets</div></div>
+    <div class="card"><div class="n">${totalMeasurements}</div><div class="l">Measurements</div></div>
+    <div class="card"><div class="n ${affected ? "bad" : ""}">${affected}</div><div class="l">With interference</div></div>`;
+  if (!targets.length) { tbody.innerHTML = `<tr><td colspan="4" class="empty">No measurements yet — push one with <span class="mono">lumra push</span>.</td></tr>`; return; }
+  tbody.innerHTML = targets.map((t) => `
+    <tr class="clickable" data-target="${esc(t.target)}">
+      <td><strong>${esc(t.target)}</strong></td>
+      <td>${t.total}</td>
+      <td class="${t.interference ? "bad" : "muted"}">${t.interference || "—"}</td>
+      <td class="muted">${esc(fmtTime(t.last_seen))}</td>
+    </tr>`).join("");
+  tbody.querySelectorAll("tr.clickable").forEach((tr) =>
+    tr.addEventListener("click", () => loadEvents(tr.dataset.target)));
+  document.getElementById("refresh").textContent = "updated " + new Date().toLocaleTimeString();
+}
+
+async function loadEvents(target) {
+  const q = target ? `?target=${encodeURIComponent(target)}` : "";
+  const { events } = await api("/v1/events" + q + (q ? "&" : "?") + "limit=100");
+  document.getElementById("events-title").textContent = target ? `Events · ${target}` : "Recent events";
+  const clr = document.getElementById("clear-filter");
+  clr.style.display = target ? "inline" : "none";
+  const tbody = document.getElementById("events");
+  if (!events.length) { tbody.innerHTML = `<tr><td colspan="7" class="empty">No events.</td></tr>`; return; }
+  tbody.innerHTML = events.map((e) => `
+    <tr>
+      <td class="muted">${esc(fmtTime(e.measured_at))}</td>
+      <td>${esc(e.target)}</td>
+      <td><span class="tag ${natureClass(e.nature)}">${esc(e.type)}</span></td>
+      <td class="muted">${esc(e.nature)}</td>
+      <td class="muted">${esc(e.confidence || "—")}</td>
+      <td class="muted">${esc(e.authority || e.attribution || "—")}</td>
+      <td class="mono" title="${esc(e.key_id)}">${esc((e.key_id || "").slice(0, 16))}</td>
+    </tr>`).join("");
+}
+
+document.getElementById("clear-filter").addEventListener("click", () => loadEvents(null));
+loadTargets();
+loadEvents(null);
+setInterval(() => { loadTargets(); }, 15000);
+</script>
+</body>
+</html>

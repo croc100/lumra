@@ -6,6 +6,14 @@
   "observability": {
     "enabled": true
   },
+  "assets": {
+    "directory": "./public"
+  },
+  // Serve the dashboard + API from app.lumra.crode.net. Requires crode.net to be
+  // a zone in this Cloudflare account; custom_domain provisions DNS + TLS.
+  "routes": [
+    { "pattern": "app.lumra.crode.net", "custom_domain": true }
+  ],
   "d1_databases": [
     {
       "binding": "DB",
