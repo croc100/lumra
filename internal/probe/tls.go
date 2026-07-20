@@ -10,6 +10,7 @@ import (
 	"net"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/croc100/lumra/internal/verdict"
@@ -257,12 +258,29 @@ func isTimeout(err error) bool {
 	return errors.As(err, &ne) && ne.Timeout()
 }
 
-// isReset reports whether err looks like a connection reset — the signature of a
-// middlebox tearing the connection down, as opposed to a server-sent TLS alert.
+// isReset reports whether err is a connection teardown — the signature of a
+// middlebox tearing the connection down, as opposed to a server-sent TLS alert
+// or an ordinary close. It reasons from the kernel's own verdict first: a real
+// TCP RST surfaces as ECONNRESET, and a write to an already-reset connection as
+// EPIPE. These are provenance-precise — the transport telling us it was reset —
+// not a guess from error text.
+//
+// A *clean* EOF (io.EOF) is deliberately NOT a reset: it is how an ordinary
+// close appears, and treating it as interference is exactly the one-dimensional
+// mistake that lets noise masquerade as a block. A *truncated* stream
+// (io.ErrUnexpectedEOF, "unexpected EOF") is kept — the peer cut the connection
+// mid-handshake, a teardown, not a graceful close.
 func isReset(err error) bool {
+	if errors.Is(err, syscall.ECONNRESET) || errors.Is(err, syscall.EPIPE) ||
+		errors.Is(err, net.ErrClosed) {
+		return true
+	}
+	// Some TLS-layer teardowns arrive without a syscall errno (opaque or wrapped);
+	// fall back to a narrow textual signature, but never a bare "eof".
 	msg := strings.ToLower(err.Error())
-	return strings.Contains(msg, "reset") || errors.Is(err, net.ErrClosed) ||
-		strings.Contains(msg, "broken pipe") || strings.Contains(msg, "eof")
+	return strings.Contains(msg, "connection reset") ||
+		strings.Contains(msg, "broken pipe") ||
+		strings.Contains(msg, "unexpected eof")
 }
 
 // Contribute folds the TLS/SNI finding into the verdict.
