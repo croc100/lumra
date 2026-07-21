@@ -39,6 +39,7 @@ func usage() {
 		"  lumra push <domain> | --bundle <file.json> [--endpoint <url>] [--asn ..] [--country ..]\n"+
 		"  lumra watch <domain> [--interval 30s] [--json]\n"+
 		"  lumra live [--active]               (passive cockpit; --active adds background confirmation)\n"+
+		"  lumra serve [--addr 127.0.0.1:7777] [--active]   (local web cockpit in your browser)\n"+
 		"  lumra install-host <extension-id>   (register the browser native host)\n"+
 		"  lumra nm-host                       (native-messaging host; run by the browser)\n"+
 		"  lumra version")
@@ -66,6 +67,8 @@ func main() {
 		runWatch(os.Args[2:])
 	case "live":
 		runLive(os.Args[2:])
+	case "serve":
+		runServe(os.Args[2:])
 	case "verify":
 		runVerify(os.Args[2:])
 	case "push":
