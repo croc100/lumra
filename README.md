@@ -47,6 +47,28 @@ lumra diagnose example.com --bundle b.json --ooni  # signed evidence + OONI expo
 lumra live                              # passive cockpit of every domain you touch
 lumra watch example.com                 # continuous monitoring + blocked-at timeline
 lumra verify b.json                     # check a signed measurement bundle
+
+lumra serve                             # local web cockpit in your browser (no account, no server)
+```
+
+### Local web cockpit
+
+`lumra serve` runs a self-hosted dashboard on `http://127.0.0.1:7777` that
+drives the same engine as the CLI — no account, no cloud, the page talks only to
+this process. It's the convenient way to use Lumra on a personal machine or in a
+lab:
+
+- **Diagnose** any target from the browser, with the full evidence breakdown.
+- **Export evidence** in one click — shareable HTML report, Ed25519-signed
+  bundle, or OONI measurement — generated from exactly the verdict on screen.
+- **Continuous monitoring** — watch a target and build a live blocked-at
+  timeline; add or stop targets from the UI.
+- **Live board** of every domain this machine touches (needs elevation for the
+  passive tap; diagnosis and monitoring work unprivileged).
+
+```sh
+lumra serve --addr 127.0.0.1:8080       # custom bind address
+lumra serve --active                    # add background confirmation probes
 ```
 
 Deep RST/TTL attribution needs a raw socket — run elevated (`sudo` /
@@ -59,8 +81,10 @@ out. Detection spans DNS (tampering / NXDOMAIN / duplicate-response injection),
 TLS/SNI filtering, TLS MITM, TLS 1.3 downgrade, IP blocking, RST/TTL
 attribution, throttling, self-identifying block pages, and modern protocols —
 QUIC/HTTP-3, ECH, and DoH blocking. Plus continuous monitoring (`lumra watch`),
-a passive cockpit (`lumra live`), signed/OONI-exportable evidence bundles, a
-browser extension, and iOS/Android app shells. See [ROADMAP.md](ROADMAP.md) for
+a passive cockpit (`lumra live`), a local web cockpit (`lumra serve`) with
+one-click evidence export and continuous monitoring, signed/OONI-exportable
+evidence bundles, a browser extension, and iOS/Android app shells. See
+[ROADMAP.md](ROADMAP.md) for
 the path to hosted monitoring (P2) and the opt-in vantage network (P3).
 
 ---

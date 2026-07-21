@@ -69,6 +69,23 @@
   .exports a { text-decoration: none; font-size: 12px; font-weight: 600; padding: 6px 12px; border-radius: 8px;
     border: 1px solid var(--border); color: var(--accent); background: color-mix(in srgb, var(--accent) 7%, transparent); }
   .exports a:hover { background: color-mix(in srgb, var(--accent) 14%, transparent); }
+  .wint { background: var(--panel); border: 1px solid var(--border); border-radius: 9px;
+    color: var(--text); padding: 10px 12px; font: inherit; }
+  .watch { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px; margin-bottom: 10px; }
+  .watch .top { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+  .watch .top strong { font-size: 15px; }
+  .watch .meta { color: var(--muted); font-size: 12px; }
+  .watch button.stop { background: none; border: 1px solid var(--border); color: var(--muted);
+    border-radius: 8px; padding: 5px 12px; font: inherit; font-size: 12px; cursor: pointer; }
+  .watch button.stop:hover { color: var(--ctrl); border-color: var(--ctrl); }
+  .timeline { margin: 12px 0 0; padding: 0; list-style: none; }
+  .timeline li { display: flex; gap: 10px; align-items: baseline; padding: 5px 0; border-top: 1px solid var(--border); font-size: 13px; }
+  .timeline .t { color: var(--muted); font-family: ui-monospace, monospace; font-size: 12px; min-width: 66px; }
+  .timeline .k { min-width: 92px; font-weight: 600; }
+  .k-blocked { color: var(--ctrl); }
+  .k-recovered { color: var(--ok); }
+  .k-changed { color: var(--surv); }
+  .k-start { color: var(--muted); }
   .banner { display: none; margin: 12px 0 0; padding: 12px 16px; border-radius: 10px;
     background: color-mix(in srgb, var(--surv) 14%, transparent); color: var(--surv);
     border: 1px solid color-mix(in srgb, var(--surv) 35%, transparent); font-size: 13px; }
@@ -89,6 +106,21 @@
       <button id="go">Diagnose</button>
     </div>
     <div class="panel" id="verdict-panel" style="display:none"><div class="verdict" id="verdict"></div></div>
+  </section>
+
+  <section>
+    <h2>Continuous monitoring</h2>
+    <div class="diag">
+      <input id="wq" placeholder="example.com — keep watching, record a blocked-at timeline" autocomplete="off" />
+      <select id="wint" class="wint">
+        <option value="10s">every 10s</option>
+        <option value="30s" selected>every 30s</option>
+        <option value="1m">every 1m</option>
+        <option value="5m">every 5m</option>
+      </select>
+      <button id="wgo">Watch</button>
+    </div>
+    <div id="watches"></div>
   </section>
 
   <div class="cards" id="cards"></div>
@@ -196,6 +228,57 @@ async function diagnose() {
   }
 }
 
+// --- continuous monitoring ---
+const kindLabel = { start: "baseline", blocked: "🚫 blocked", recovered: "✓ recovered", changed: "⟳ changed" };
+
+function renderWatches(list) {
+  const box = document.getElementById("watches");
+  if (!list.length) { box.innerHTML = ""; return; }
+  box.innerHTML = list.map((w) => {
+    const events = (w.events || []).slice().reverse(); // newest first
+    const rows = events.map((e) => `
+      <li>
+        <span class="t">${esc(new Date(e.at).toLocaleTimeString())}</span>
+        <span class="k k-${esc(e.kind)}">${esc(kindLabel[e.kind] || e.kind)}</span>
+        <span>${esc(e.type)}${e.prev ? ` <span class="muted">(was ${esc(e.prev)})</span>` : ""}</span>
+      </li>`).join("");
+    return `
+      <div class="watch">
+        <div class="top">
+          <div>
+            <strong>${esc(w.target)}</strong>
+            <span class="tag ${natureClass(w.nature)}" style="margin-left:8px">${esc(w.current)}</span>
+          </div>
+          <div style="display:flex;align-items:center;gap:12px">
+            <span class="meta">${esc(w.interval)} · since ${esc(new Date(w.since).toLocaleTimeString())}</span>
+            <button class="stop" data-target="${esc(w.target)}">Stop</button>
+          </div>
+        </div>
+        ${rows ? `<ul class="timeline">${rows}</ul>` : `<div class="meta" style="margin-top:8px">waiting for first result…</div>`}
+      </div>`;
+  }).join("");
+  box.querySelectorAll("button.stop").forEach((b) =>
+    b.addEventListener("click", async () => {
+      await fetch("/api/watch/stop", { method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ target: b.dataset.target }) });
+      loadWatches();
+    }));
+}
+
+async function loadWatches() {
+  try { renderWatches(await fetch("/api/watches").then((r) => r.json())); } catch {}
+}
+
+async function addWatch() {
+  const target = document.getElementById("wq").value.trim();
+  if (!target) return;
+  const interval = document.getElementById("wint").value;
+  await fetch("/api/watch", { method: "POST", headers: { "content-type": "application/json" },
+    body: JSON.stringify({ target, interval }) });
+  document.getElementById("wq").value = "";
+  loadWatches();
+}
+
 async function checkStatus() {
   try {
     const s = await fetch("/api/status").then((r) => r.json());
@@ -209,8 +292,12 @@ async function checkStatus() {
 
 document.getElementById("go").addEventListener("click", diagnose);
 document.getElementById("q").addEventListener("keydown", (e) => { if (e.key === "Enter") diagnose(); });
+document.getElementById("wgo").addEventListener("click", addWatch);
+document.getElementById("wq").addEventListener("keydown", (e) => { if (e.key === "Enter") addWatch(); });
 checkStatus();
 setInterval(checkStatus, 5000);
+loadWatches();
+setInterval(loadWatches, 3000);
 connect();
 </script>
 </body>

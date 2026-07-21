@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"sort"
 	"strings"
 	"sync"
 	"syscall"
@@ -19,7 +20,116 @@ import (
 	"github.com/croc100/lumra/internal/probe"
 	"github.com/croc100/lumra/internal/report"
 	"github.com/croc100/lumra/internal/verdict"
+	"github.com/croc100/lumra/internal/watch"
 )
+
+// maxTimeline caps the events kept per watched target so a long-running monitor
+// can't grow memory without bound. Only state *changes* are recorded, so this is
+// generous in practice.
+const maxTimeline = 500
+
+// watchState is one continuously-monitored target: its poll interval, when it
+// started, the latest observed verdict, and the timeline of state changes.
+type watchState struct {
+	Target   string        `json:"target"`
+	Interval string        `json:"interval"`
+	Since    time.Time     `json:"since"`
+	Current  verdict.Type  `json:"current"`
+	Nature   string        `json:"nature"`
+	Events   []watch.Event `json:"events"`
+	cancel   context.CancelFunc
+}
+
+// watchManager owns all running monitors. Each target runs in its own goroutine
+// that appends to the shared timeline under the manager lock.
+type watchManager struct {
+	mu     sync.Mutex
+	m      map[string]*watchState
+	parent context.Context
+}
+
+func newWatchManager(ctx context.Context) *watchManager {
+	return &watchManager{m: map[string]*watchState{}, parent: ctx}
+}
+
+// start begins monitoring target every interval. It is a no-op if the target is
+// already watched, so the same target can't spawn duplicate monitors.
+func (wm *watchManager) start(target string, interval time.Duration) {
+	wm.mu.Lock()
+	if _, ok := wm.m[target]; ok {
+		wm.mu.Unlock()
+		return
+	}
+	ctx, cancel := context.WithCancel(wm.parent)
+	st := &watchState{
+		Target:   target,
+		Interval: interval.String(),
+		Since:    time.Now(),
+		Current:  verdict.Inconclusive,
+		Nature:   string(verdict.NatureUnknown),
+		cancel:   cancel,
+	}
+	wm.m[target] = st
+	wm.mu.Unlock()
+
+	mon := watch.New(target, func(c context.Context, t string) *verdict.Verdict {
+		// Bound each poll so a hung probe can't stall the monitor loop.
+		dctx, dcancel := context.WithTimeout(c, 20*time.Second)
+		defer dcancel()
+		return engine.Diagnose(dctx, t)
+	})
+	go mon.Run(ctx, interval, func(e watch.Event) {
+		wm.mu.Lock()
+		defer wm.mu.Unlock()
+		s, ok := wm.m[target]
+		if !ok {
+			return // stopped while a poll was in flight
+		}
+		s.Current = e.Type
+		if e.Verdict != nil {
+			s.Nature = string(e.Verdict.Nature)
+		}
+		s.Events = append(s.Events, e)
+		if len(s.Events) > maxTimeline {
+			s.Events = s.Events[len(s.Events)-maxTimeline:]
+		}
+	})
+}
+
+// stop cancels the monitor for target and forgets its timeline.
+func (wm *watchManager) stop(target string) {
+	wm.mu.Lock()
+	s, ok := wm.m[target]
+	if ok {
+		delete(wm.m, target)
+	}
+	wm.mu.Unlock()
+	if ok {
+		s.cancel()
+	}
+}
+
+// list returns a snapshot of every watched target, newest-started first, with a
+// deep copy of each timeline so callers can marshal it without holding the lock.
+func (wm *watchManager) list() []watchState {
+	wm.mu.Lock()
+	defer wm.mu.Unlock()
+	out := make([]watchState, 0, len(wm.m))
+	for _, s := range wm.m {
+		ev := make([]watch.Event, len(s.Events))
+		copy(ev, s.Events)
+		out = append(out, watchState{
+			Target:   s.Target,
+			Interval: s.Interval,
+			Since:    s.Since,
+			Current:  s.Current,
+			Nature:   s.Nature,
+			Events:   ev,
+		})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Since.After(out[j].Since) })
+	return out
+}
 
 //go:embed webui/index.html
 var webUI embed.FS
@@ -181,6 +291,7 @@ func runServe(args []string) {
 	}
 
 	cache := newDiagCache()
+	watches := newWatchManager(ctx)
 	mux := http.NewServeMux()
 
 	// The dashboard shell.
@@ -343,6 +454,49 @@ func runServe(args []string) {
 			return
 		}
 		serveDownload(w, "application/json", "lumra-"+safeName(target)+"-ooni.json", data)
+	})
+
+	// Continuous monitoring: start/stop a per-target watcher and read its
+	// blocked-at timeline. Turns the one-shot cockpit into a standing monitor.
+	mux.HandleFunc("/api/watches", func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, watches.list())
+	})
+	mux.HandleFunc("/api/watch", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "POST only", http.StatusMethodNotAllowed)
+			return
+		}
+		var req struct {
+			Target   string `json:"target"`
+			Interval string `json:"interval"`
+		}
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096)).Decode(&req); err != nil || req.Target == "" {
+			http.Error(w, "body must be {\"target\": \"...\", \"interval\": \"30s\"}", http.StatusBadRequest)
+			return
+		}
+		interval := 30 * time.Second
+		if req.Interval != "" {
+			if d, err := time.ParseDuration(req.Interval); err == nil && d >= time.Second {
+				interval = d
+			}
+		}
+		watches.start(req.Target, interval)
+		writeJSON(w, map[string]any{"ok": true, "target": req.Target, "interval": interval.String()})
+	})
+	mux.HandleFunc("/api/watch/stop", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "POST only", http.StatusMethodNotAllowed)
+			return
+		}
+		var req struct {
+			Target string `json:"target"`
+		}
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096)).Decode(&req); err != nil || req.Target == "" {
+			http.Error(w, "body must be {\"target\": \"...\"}", http.StatusBadRequest)
+			return
+		}
+		watches.stop(req.Target)
+		writeJSON(w, map[string]any{"ok": true})
 	})
 
 	srv := &http.Server{Addr: addr, Handler: mux}
