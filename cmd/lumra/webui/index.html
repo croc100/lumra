@@ -285,8 +285,10 @@ async function checkStatus() {
     const b = document.getElementById("banner");
     if (s.tap_ok) { b.style.display = "none"; return; }
     b.style.display = "block";
-    b.innerHTML = `Live traffic board is off — ${esc(s.tap || "passive tap unavailable")}. ` +
-      `Diagnosis below still works. For the live board, run <code>lumra serve</code> elevated (admin / sudo).`;
+    b.innerHTML = `Passive packet tap is off — ${esc(s.tap || "unavailable")}. ` +
+      `Diagnosis and monitoring still work. To fill the live board, either install the ` +
+      `<b>Lumra browser extension</b> and turn on traffic streaming (no elevation), or run ` +
+      `<code>lumra serve</code> elevated (admin / sudo) for the raw-socket tap.`;
   } catch {}
 }
 

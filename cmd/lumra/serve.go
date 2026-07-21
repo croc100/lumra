@@ -153,6 +153,58 @@ type flowView struct {
 	LastSeen   time.Time `json:"last_seen"`
 }
 
+// observation is one thing the browser extension saw for a domain. Event is the
+// browser-side lifecycle marker; Error carries the Chrome net error string when
+// Event is "error", from which we infer the interference kind.
+type observation struct {
+	Domain string `json:"domain"`
+	Event  string `json:"event"` // "request" | "response" | "error"
+	Error  string `json:"error,omitempty"`
+}
+
+// toEvent maps a browser observation onto the same wire event the passive tap
+// emits, so extension-sourced traffic is indistinguishable to the tracker. It
+// returns ok=false for observations that carry no useful signal.
+func (o observation) toEvent(now time.Time) (live.Event, bool) {
+	if o.Domain == "" {
+		return live.Event{}, false
+	}
+	e := live.Event{Domain: o.Domain, At: now}
+	switch o.Event {
+	case "request":
+		e.Kind = live.ClientHello // a domain is being reached
+	case "response":
+		e.Kind = live.ServerHello // the session got established (reads clear)
+	case "error":
+		switch {
+		case strings.Contains(o.Error, "CERT"):
+			// Browser rejected the chain — the passive MITM signal.
+			e.Kind = live.Cert
+			e.Untrusted = true
+			e.Subject = o.Domain
+		case strings.Contains(o.Error, "NAME_NOT_RESOLVED"):
+			e.Kind = live.DNS
+			e.Suspicious = true
+			e.Reason = "name did not resolve in the browser"
+		default:
+			// RESET / TIMED_OUT / REFUSED / SSL_PROTOCOL_ERROR / generic: a
+			// connection killed with no established session — a block signature.
+			e.Kind = live.Reset
+		}
+	default:
+		return live.Event{}, false
+	}
+	return e, true
+}
+
+// corsHeaders lets the browser extension POST observations cross-origin.
+func corsHeaders(w http.ResponseWriter) {
+	h := w.Header()
+	h.Set("access-control-allow-origin", "*")
+	h.Set("access-control-allow-methods", "POST, OPTIONS")
+	h.Set("access-control-allow-headers", "content-type")
+}
+
 func viewOf(f live.Flow) flowView {
 	v := flowView{
 		Domain:      f.Domain,
@@ -378,6 +430,38 @@ func runServe(args []string) {
 		v := engine.Diagnose(dctx, req.Target)
 		cache.put(req.Target, v, now)
 		writeJSON(w, v)
+	})
+
+	// Privilege-free traffic sensor: the browser extension observes every
+	// request it makes (webRequest) and streams them here, so the live board
+	// populates without the raw-socket tap (which needs elevation). Each
+	// observation is mapped to the same wire event the passive tap emits and
+	// folded into the very same tracker.
+	mux.HandleFunc("/api/observe", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodOptions { // CORS preflight from the extension
+			corsHeaders(w)
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		corsHeaders(w)
+		if r.Method != http.MethodPost {
+			http.Error(w, "POST only", http.StatusMethodNotAllowed)
+			return
+		}
+		var obs []observation
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&obs); err != nil {
+			http.Error(w, "body must be a JSON array of observations", http.StatusBadRequest)
+			return
+		}
+		now := time.Now()
+		n := 0
+		for _, o := range obs {
+			if ev, ok := o.toEvent(now); ok {
+				tracker.Observe(ev)
+				n++
+			}
+		}
+		writeJSON(w, map[string]any{"ok": true, "accepted": n})
 	})
 
 	// Evidence exports — generated from the last cached diagnosis (or a fresh one
