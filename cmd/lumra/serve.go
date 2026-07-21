@@ -7,7 +7,9 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"os/exec"
 	"os/signal"
+	"runtime"
 	"sort"
 	"strings"
 	"sync"
@@ -280,10 +282,13 @@ func runServe(args []string) {
 	addr := "127.0.0.1:7777"
 	interval := time.Second
 	var active bool
+	noOpen := false
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
 		case "--active", "-active":
 			active = true
+		case "--no-open", "-no-open":
+			noOpen = true
 		case "--addr", "-addr":
 			if i+1 < len(args) {
 				addr = args[i+1]
@@ -591,11 +596,36 @@ func runServe(args []string) {
 		_ = srv.Shutdown(sctx)
 	}()
 
-	fmt.Printf("lumra cockpit — http://%s  (mode: %s, Ctrl-C to stop)\n", addr, liveMode(active))
+	url := "http://" + addr
+	fmt.Printf("lumra cockpit — %s  (mode: %s, Ctrl-C to stop)\n", url, liveMode(active))
+	if !noOpen {
+		// Open the dashboard in the default browser once the listener is up, so a
+		// double-clicked binary lands the user straight on the cockpit. Best-effort:
+		// a headless box or missing opener just leaves the printed URL.
+		go func() {
+			time.Sleep(300 * time.Millisecond)
+			openBrowser(url)
+		}()
+	}
 	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		fmt.Fprintln(os.Stderr, "lumra serve:", err)
 		os.Exit(1)
 	}
+}
+
+// openBrowser points the OS default browser at url. Best-effort and silent: the
+// URL is always printed, so a failure here never blocks using the cockpit.
+func openBrowser(url string) {
+	var cmd *exec.Cmd
+	switch runtime.GOOS {
+	case "windows":
+		cmd = exec.Command("rundll32", "url.dll,FileProtocolHandler", url)
+	case "darwin":
+		cmd = exec.Command("open", url)
+	default:
+		cmd = exec.Command("xdg-open", url)
+	}
+	_ = cmd.Start()
 }
 
 func writeJSON(w http.ResponseWriter, v any) {

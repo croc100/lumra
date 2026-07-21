@@ -29,14 +29,32 @@ Litescope.
 
 ---
 
-## Install
+## Run it — no install
+
+Lumra is a **single self-contained binary** with the web UI baked in (no
+runtime, no dependencies). You don't have to install anything: download the
+binary for your platform from [Releases](https://github.com/croc100/lumra/releases),
+and **just run it** —
+
+```sh
+./lumra              # (double-click on Windows/macOS)
+```
+
+— which launches the local cockpit and opens `http://127.0.0.1:7777` in your
+browser. That's the whole thing: one file, run it, dashboard.
+
+### Or install it on your PATH
+
+If you'd rather have `lumra` as a command everywhere:
 
 ```sh
 brew install croc100/tap/lumra          # macOS / Linux
+scoop install lumra                      # Windows (via the croc100 bucket)
+irm https://raw.githubusercontent.com/croc100/lumra/main/install.ps1 | iex   # Windows, no package manager
 go install github.com/croc100/lumra/cmd/lumra@latest
 ```
 
-Then:
+Then use the subcommands:
 
 ```sh
 lumra diagnose example.com              # human-readable verdict

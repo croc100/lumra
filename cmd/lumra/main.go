@@ -34,12 +34,13 @@ var (
 
 func usage() {
 	fmt.Fprintln(os.Stderr, "usage:\n"+
+		"  lumra                               (no args: launch the local cockpit and open the browser)\n"+
 		"  lumra diagnose <domain> [--json] [--report <file.html>] [--bundle <file.json>] [--ooni <file.json>]\n"+
 		"  lumra verify <bundle.json>          (check a signed evidence bundle)\n"+
 		"  lumra push <domain> | --bundle <file.json> [--endpoint <url>] [--asn ..] [--country ..]\n"+
 		"  lumra watch <domain> [--interval 30s] [--json]\n"+
 		"  lumra live [--active]               (passive cockpit; --active adds background confirmation)\n"+
-		"  lumra serve [--addr 127.0.0.1:7777] [--active]   (local web cockpit in your browser)\n"+
+		"  lumra serve [--addr 127.0.0.1:7777] [--active] [--no-open]   (local web cockpit in your browser)\n"+
 		"  lumra install-host <extension-id>   (register the browser native host)\n"+
 		"  lumra nm-host                       (native-messaging host; run by the browser)\n"+
 		"  lumra version")
@@ -54,11 +55,16 @@ func printVersion() {
 }
 
 func main() {
+	// No subcommand — the "just run it" path. Double-clicking the binary or
+	// running a bare `lumra` launches the local cockpit and opens the browser,
+	// so the tool needs no install ceremony. `lumra help` prints the CLI usage.
 	if len(os.Args) < 2 {
-		usage()
-		os.Exit(2)
+		runServe(nil)
+		return
 	}
 	switch os.Args[1] {
+	case "help", "--help", "-h":
+		usage()
 	case "version", "--version", "-v":
 		printVersion()
 	case "diagnose":
