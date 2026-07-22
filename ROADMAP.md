@@ -69,6 +69,11 @@ Past point-in-time diagnosis: continuous, passive, and hard-to-fool sensing.
   default; `--active` opts into confirmation probes.
 - ✅ `lumra watch` — continuous monitoring with a blocked-at timeline and
   auto-escalation/drill-down.
+- ✅ `lumra serve` — local web cockpit: a serverless, account-free dashboard on
+  `127.0.0.1` that drives the same engine from the browser. Diagnose targets,
+  one-click evidence export (HTML report, signed bundle, OONI), continuous
+  monitoring with a live blocked-at timeline, and the live traffic board — all
+  local, no cloud. Built for individual and lab use.
 - ✅ Modern-protocol coverage — **QUIC/HTTP-3** block detection (Version
   Negotiation), **ECH** block detection (reset of Encrypted ClientHello),
   **TLS 1.3 downgrade** detection (surveillance signal), and **DoH-blocking**

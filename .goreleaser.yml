@@ -59,20 +59,29 @@ changelog:
     - title: "Other"
       order: 999
 
-brews:
+# Homebrew distribution as a Cask (goreleaser deprecated `brews`/formulae in
+# favour of casks for pre-compiled binaries). Installs as
+# `brew install croc100/tap/lumra`.
+homebrew_casks:
   - name: lumra
+    binaries:
+      - lumra
     homepage: "https://lumra.crode.net"
     description: "Diagnose why a site is blocked, throttled, or tampered with — and where the interference originates"
-    license: "Elastic-2.0"
+    directory: Casks
     repository:
       owner: croc100
       name: homebrew-tap
+      branch: main
       token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
-    directory: Formula
-    test: |
-      system "#{bin}/lumra", "version"
-    install: |
-      bin.install "lumra"
+    # Unsigned binary: strip the quarantine xattr so macOS doesn't flag the
+    # cask as "damaged and cannot be opened" on first run.
+    hooks:
+      post:
+        install: |
+          if OS.mac?
+            system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/lumra"]
+          end
 
 scoops:
   - name: lumra

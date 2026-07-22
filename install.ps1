@@ -37,5 +37,7 @@ if ($userPath -notlike "*$dir*") {
 
 Write-Host ""
 Write-Host "Lumra $ver installed to $dir" -ForegroundColor Green
-Write-Host "Open a NEW terminal, then run:  lumra diagnose example.com"
+Write-Host "Open a NEW terminal, then run:"
+Write-Host "  lumra                     # launch the dashboard (opens your browser)"
+Write-Host "  lumra diagnose example.com"
 Write-Host "Deep RST/TTL attribution needs an elevated (Administrator) terminal."

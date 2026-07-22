@@ -10,9 +10,24 @@ local Lumra native core over [Native Messaging](https://developer.chrome.com/doc
 |-------|--------------|
 | Extension only | in-browser detection of failing navigations (toolbar badge) |
 | Extension **+ native core** | full verdict: DNS / SNI / RST-TTL attribution / self-identified block page |
+| Extension **+ `lumra serve`** | live traffic board of every domain the browser touches — **no elevation** |
 
 The browser cannot inspect raw packets, so deep attribution (TTL hop
 triangulation, injected-RST detection) only works with the native core installed.
+
+## Live traffic streaming → local cockpit
+
+`lumra serve` runs a local web cockpit (`http://127.0.0.1:7777`) with a live
+board of interference. Its own passive tap needs elevation (raw sockets), but the
+extension is a **privilege-free sensor**: it observes every request the browser
+makes (`webRequest`) and streams it to the cockpit, which classifies each domain
+(clear / blocked / watched) and shows it on the board in real time.
+
+Turn it on from the popup: **"Stream this browser's traffic to the local
+cockpit."** Enabling asks for the `<all_urls>` permission (needed to observe
+traffic) and is off by default. Observations go only to `127.0.0.1:7777` — nothing
+leaves the machine, in keeping with CRODE's no-log stance. If the cockpit isn't
+running, batches are dropped silently.
 
 ## Install (Chrome / Edge)
 
@@ -44,8 +59,8 @@ A Firefox-specific `install-host` mode will land alongside packaging.
 ## Files
 
 - `manifest.json` — MV3 manifest
-- `background.js` — badges failing tabs; bridges popup ↔ native core
-- `popup.html` / `popup.js` — the diagnose UI
+- `background.js` — badges failing tabs; streams observed traffic to the cockpit; bridges popup ↔ native core
+- `popup.html` / `popup.js` — the diagnose UI + traffic-streaming toggle
 - `host/net.crode.lumra.json.template` — reference host manifest (the
   `install-host` command generates the real one with correct paths)
 

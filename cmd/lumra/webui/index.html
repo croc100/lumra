@@ -1,0 +1,306 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Lumra — local cockpit</title>
+<style>
+  :root {
+    --bg: #f7f8fa; --panel: #fff; --border: #e4e7ec; --text: #1a1d23;
+    --muted: #667085; --accent: #4f46e5;
+    --ok: #12b76a; --ctrl: #d92d20; --surv: #dc6803; --degr: #7839ee; --fault: #667085;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0e1015; --panel: #171a21; --border: #262b36; --text: #e7eaf0;
+      --muted: #8b93a3; --accent: #7c74f5;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+    font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+  header { padding: 24px 20px 8px; max-width: 1100px; margin: 0 auto; }
+  h1 { font-size: 22px; margin: 0; display: flex; align-items: center; gap: 10px; }
+  h1 .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--fault); transition: background .3s, box-shadow .3s; }
+  h1 .dot.on { background: var(--ok); box-shadow: 0 0 8px var(--ok); }
+  .sub { color: var(--muted); margin: 4px 0 0; }
+  main { max-width: 1100px; margin: 0 auto; padding: 12px 20px 60px; }
+  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin: 16px 0 24px; }
+  .card { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px; }
+  .card .n { font-size: 26px; font-weight: 650; }
+  .card .l { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .04em; }
+  .card .n.bad { color: var(--ctrl); }
+  .card .n.warn { color: var(--surv); }
+  section h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); margin: 24px 0 10px; }
+  .panel { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; overflow: hidden; }
+  table { width: 100%; border-collapse: collapse; }
+  th, td { text-align: left; padding: 11px 16px; border-bottom: 1px solid var(--border); }
+  th { font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); font-weight: 600; }
+  tr:last-child td { border-bottom: none; }
+  tbody tr.clickable { cursor: pointer; }
+  tbody tr.clickable:hover { background: color-mix(in srgb, var(--accent) 7%, transparent); }
+  .tag { display: inline-block; padding: 2px 9px; border-radius: 999px; font-size: 12px; font-weight: 600;
+    background: color-mix(in srgb, var(--fault) 15%, transparent); color: var(--fault); }
+  .nature-none { background: color-mix(in srgb, var(--ok) 16%, transparent); color: var(--ok); }
+  .nature-control { background: color-mix(in srgb, var(--ctrl) 16%, transparent); color: var(--ctrl); }
+  .nature-surveillance { background: color-mix(in srgb, var(--surv) 16%, transparent); color: var(--surv); }
+  .nature-degradation { background: color-mix(in srgb, var(--degr) 16%, transparent); color: var(--degr); }
+  .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; color: var(--muted); }
+  .muted { color: var(--muted); }
+  .bad { color: var(--ctrl); font-weight: 600; }
+  .empty { padding: 40px 16px; text-align: center; color: var(--muted); }
+  .row-actions { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+  .refresh { color: var(--muted); font-size: 12px; }
+  /* diagnose box */
+  .diag { display: flex; gap: 8px; margin: 4px 0 8px; }
+  .diag input { flex: 1; background: var(--panel); border: 1px solid var(--border); border-radius: 9px;
+    color: var(--text); padding: 10px 14px; font: inherit; }
+  .diag input:focus { outline: none; border-color: var(--accent); }
+  .diag button { background: var(--accent); color: #fff; border: none; border-radius: 9px;
+    padding: 10px 20px; font: inherit; font-weight: 600; cursor: pointer; }
+  .diag button:disabled { opacity: .5; cursor: default; }
+  .verdict { padding: 16px; }
+  .verdict .hero { font-size: 16px; font-weight: 650; margin-bottom: 6px; }
+  .verdict ul { list-style: none; margin: 10px 0 0; padding: 0; }
+  .verdict li { padding: 4px 0; border-top: 1px solid var(--border); display: flex; gap: 8px; }
+  .verdict li .pr { color: var(--muted); min-width: 46px; font-family: ui-monospace, monospace; font-size: 12px; }
+  .badge { font-family: ui-monospace, monospace; }
+  .exports { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--border); }
+  .exports a { text-decoration: none; font-size: 12px; font-weight: 600; padding: 6px 12px; border-radius: 8px;
+    border: 1px solid var(--border); color: var(--accent); background: color-mix(in srgb, var(--accent) 7%, transparent); }
+  .exports a:hover { background: color-mix(in srgb, var(--accent) 14%, transparent); }
+  .wint { background: var(--panel); border: 1px solid var(--border); border-radius: 9px;
+    color: var(--text); padding: 10px 12px; font: inherit; }
+  .watch { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px; margin-bottom: 10px; }
+  .watch .top { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+  .watch .top strong { font-size: 15px; }
+  .watch .meta { color: var(--muted); font-size: 12px; }
+  .watch button.stop { background: none; border: 1px solid var(--border); color: var(--muted);
+    border-radius: 8px; padding: 5px 12px; font: inherit; font-size: 12px; cursor: pointer; }
+  .watch button.stop:hover { color: var(--ctrl); border-color: var(--ctrl); }
+  .timeline { margin: 12px 0 0; padding: 0; list-style: none; }
+  .timeline li { display: flex; gap: 10px; align-items: baseline; padding: 5px 0; border-top: 1px solid var(--border); font-size: 13px; }
+  .timeline .t { color: var(--muted); font-family: ui-monospace, monospace; font-size: 12px; min-width: 66px; }
+  .timeline .k { min-width: 92px; font-weight: 600; }
+  .k-blocked { color: var(--ctrl); }
+  .k-recovered { color: var(--ok); }
+  .k-changed { color: var(--surv); }
+  .k-start { color: var(--muted); }
+  .banner { display: none; margin: 12px 0 0; padding: 12px 16px; border-radius: 10px;
+    background: color-mix(in srgb, var(--surv) 14%, transparent); color: var(--surv);
+    border: 1px solid color-mix(in srgb, var(--surv) 35%, transparent); font-size: 13px; }
+  .banner code { font-family: ui-monospace, monospace; }
+</style>
+</head>
+<body>
+<header>
+  <h1><span class="dot" id="dot"></span> Lumra</h1>
+  <p class="sub">Local cockpit — every domain this machine touches, and why it's blocked. No account, no server.</p>
+  <div class="banner" id="banner"></div>
+</header>
+<main>
+  <section>
+    <h2>Diagnose a target</h2>
+    <div class="diag">
+      <input id="q" placeholder="example.com — check how it's being interfered with" autocomplete="off" />
+      <button id="go">Diagnose</button>
+    </div>
+    <div class="panel" id="verdict-panel" style="display:none"><div class="verdict" id="verdict"></div></div>
+  </section>
+
+  <section>
+    <h2>Continuous monitoring</h2>
+    <div class="diag">
+      <input id="wq" placeholder="example.com — keep watching, record a blocked-at timeline" autocomplete="off" />
+      <select id="wint" class="wint">
+        <option value="10s">every 10s</option>
+        <option value="30s" selected>every 30s</option>
+        <option value="1m">every 1m</option>
+        <option value="5m">every 5m</option>
+      </select>
+      <button id="wgo">Watch</button>
+    </div>
+    <div id="watches"></div>
+  </section>
+
+  <div class="cards" id="cards"></div>
+
+  <section>
+    <div class="row-actions">
+      <h2 id="live-title">Live traffic</h2>
+      <span class="refresh" id="refresh"></span>
+    </div>
+    <div class="panel"><table>
+      <thead><tr><th>Domain</th><th>Nature</th><th>Verdict</th><th>Hits</th><th>Resets</th><th>TLS</th><th>Last seen</th></tr></thead>
+      <tbody id="flows"><tr><td colspan="7" class="empty">Waiting for traffic… open a site in your browser.</td></tr></tbody>
+    </table></div>
+  </section>
+</main>
+<script>
+const esc = (s) => String(s ?? "").replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
+const natureClass = (n) => "nature-" + (n || "unknown");
+const fmtTime = (s) => s ? new Date(s).toLocaleTimeString() : "—";
+const tlsName = (v) => ({ 769: "1.0", 770: "1.1", 771: "1.2", 772: "1.3" }[v] || (v ? "0x" + v.toString(16) : "—"));
+
+function render(flows) {
+  document.getElementById("dot").classList.add("on");
+  const tbody = document.getElementById("flows");
+  const affected = flows.filter((f) => ["control", "surveillance", "degradation"].includes(f.nature)).length;
+  document.getElementById("cards").innerHTML = `
+    <div class="card"><div class="n">${flows.length}</div><div class="l">Domains seen</div></div>
+    <div class="card"><div class="n ${affected ? "bad" : ""}">${affected}</div><div class="l">With interference</div></div>
+    <div class="card"><div class="n">${flows.reduce((a, f) => a + (f.resets || 0), 0)}</div><div class="l">Resets observed</div></div>`;
+  if (!flows.length) { tbody.innerHTML = `<tr><td colspan="7" class="empty">Waiting for traffic… open a site in your browser.</td></tr>`; return; }
+  flows.sort((a, b) => (b.last_seen || "").localeCompare(a.last_seen || ""));
+  tbody.innerHTML = flows.map((f) => `
+    <tr class="clickable" data-domain="${esc(f.domain)}" title="Diagnose ${esc(f.domain)}">
+      <td><strong>${esc(f.domain)}</strong>${f.authority ? ` <span class="muted">· ${esc(f.authority)}</span>` : ""}</td>
+      <td><span class="tag ${natureClass(f.nature)}">${esc(f.nature)}</span></td>
+      <td class="mono">${esc(f.verdict || (f.analyzed ? "" : "pending"))}${f.cause ? `<br><span class="muted">${esc(f.cause)}</span>` : ""}</td>
+      <td>${f.hits || 0}</td>
+      <td class="${f.resets ? "bad" : "muted"}">${f.resets || 0}</td>
+      <td class="mono">${esc(tlsName(f.version))}</td>
+      <td class="muted">${esc(fmtTime(f.last_seen))}</td>
+    </tr>`).join("");
+  tbody.querySelectorAll("tr.clickable").forEach((tr) =>
+    tr.addEventListener("click", () => {
+      document.getElementById("q").value = tr.dataset.domain;
+      diagnose();
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    }));
+  document.getElementById("refresh").textContent = "live · " + new Date().toLocaleTimeString();
+}
+
+// Live stream over SSE, with a polling fallback.
+function connect() {
+  try {
+    const es = new EventSource("/api/stream");
+    es.onmessage = (e) => { try { render(JSON.parse(e.data)); } catch {} };
+    es.onerror = () => { es.close(); setTimeout(poll, 2000); };
+  } catch { poll(); }
+}
+async function poll() {
+  try { render(await fetch("/api/live").then((r) => r.json())); } catch {}
+  setTimeout(poll, 2000);
+}
+
+const natureHero = {
+  none: "✅ CLEAR — no interference detected",
+  control: "🚫 BLOCKED — your access is being prevented (censorship)",
+  surveillance: "👁 WATCHED — your encrypted connection is being intercepted",
+  degradation: "🐢 SLOWED — this target is being deliberately throttled",
+  fault: "⚠ FAULT — a genuine outage, not interference",
+  unknown: "❔ UNCLEAR — not enough signal to characterise",
+};
+
+async function diagnose() {
+  const q = document.getElementById("q").value.trim();
+  if (!q) return;
+  const btn = document.getElementById("go");
+  const panel = document.getElementById("verdict-panel");
+  const box = document.getElementById("verdict");
+  btn.disabled = true; btn.textContent = "Diagnosing…";
+  panel.style.display = "block";
+  box.innerHTML = `<div class="muted">Probing ${esc(q)}…</div>`;
+  try {
+    const v = await fetch("/api/diagnose", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ target: q }),
+    }).then((r) => r.json());
+    const attr = v.attribution ? `${esc(v.attribution)}${v.authority ? " / " + esc(v.authority) : ""}` : "—";
+    box.innerHTML = `
+      <div class="hero">${esc(natureHero[v.nature] || v.nature)}</div>
+      <div>Target <strong>${esc(v.target)}</strong> · <span class="tag ${natureClass(v.nature)}">${esc(v.type)}</span>
+        <span class="muted">confidence: ${esc(v.confidence || "—")} · attribution: ${attr}</span></div>
+      ${v.cause ? `<div style="margin-top:8px">${esc(v.cause)}</div>` : ""}
+      ${(v.evidence || []).length ? `<ul>${v.evidence.map((e) => `
+        <li><span class="pr">${esc(e.outcome === "pass" ? "✓" : e.outcome === "fail" ? "✗" : "ⓘ")} ${esc(e.probe)}</span>
+        <span>${esc(e.detail)}</span></li>`).join("")}</ul>` : ""}
+      <div class="exports">
+        <a href="/api/report?target=${encodeURIComponent(v.target)}">⬇ HTML report</a>
+        <a href="/api/bundle?target=${encodeURIComponent(v.target)}">⬇ Signed bundle</a>
+        <a href="/api/ooni?target=${encodeURIComponent(v.target)}">⬇ OONI export</a>
+      </div>`;
+  } catch (err) {
+    box.innerHTML = `<div class="bad">Diagnosis failed: ${esc(err.message || err)}</div>`;
+  } finally {
+    btn.disabled = false; btn.textContent = "Diagnose";
+  }
+}
+
+// --- continuous monitoring ---
+const kindLabel = { start: "baseline", blocked: "🚫 blocked", recovered: "✓ recovered", changed: "⟳ changed" };
+
+function renderWatches(list) {
+  const box = document.getElementById("watches");
+  if (!list.length) { box.innerHTML = ""; return; }
+  box.innerHTML = list.map((w) => {
+    const events = (w.events || []).slice().reverse(); // newest first
+    const rows = events.map((e) => `
+      <li>
+        <span class="t">${esc(new Date(e.at).toLocaleTimeString())}</span>
+        <span class="k k-${esc(e.kind)}">${esc(kindLabel[e.kind] || e.kind)}</span>
+        <span>${esc(e.type)}${e.prev ? ` <span class="muted">(was ${esc(e.prev)})</span>` : ""}</span>
+      </li>`).join("");
+    return `
+      <div class="watch">
+        <div class="top">
+          <div>
+            <strong>${esc(w.target)}</strong>
+            <span class="tag ${natureClass(w.nature)}" style="margin-left:8px">${esc(w.current)}</span>
+          </div>
+          <div style="display:flex;align-items:center;gap:12px">
+            <span class="meta">${esc(w.interval)} · since ${esc(new Date(w.since).toLocaleTimeString())}</span>
+            <button class="stop" data-target="${esc(w.target)}">Stop</button>
+          </div>
+        </div>
+        ${rows ? `<ul class="timeline">${rows}</ul>` : `<div class="meta" style="margin-top:8px">waiting for first result…</div>`}
+      </div>`;
+  }).join("");
+  box.querySelectorAll("button.stop").forEach((b) =>
+    b.addEventListener("click", async () => {
+      await fetch("/api/watch/stop", { method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ target: b.dataset.target }) });
+      loadWatches();
+    }));
+}
+
+async function loadWatches() {
+  try { renderWatches(await fetch("/api/watches").then((r) => r.json())); } catch {}
+}
+
+async function addWatch() {
+  const target = document.getElementById("wq").value.trim();
+  if (!target) return;
+  const interval = document.getElementById("wint").value;
+  await fetch("/api/watch", { method: "POST", headers: { "content-type": "application/json" },
+    body: JSON.stringify({ target, interval }) });
+  document.getElementById("wq").value = "";
+  loadWatches();
+}
+
+async function checkStatus() {
+  try {
+    const s = await fetch("/api/status").then((r) => r.json());
+    const b = document.getElementById("banner");
+    if (s.tap_ok) { b.style.display = "none"; return; }
+    b.style.display = "block";
+    b.innerHTML = `Passive packet tap is off — ${esc(s.tap || "unavailable")}. ` +
+      `Diagnosis and monitoring still work. To fill the live board, either install the ` +
+      `<b>Lumra browser extension</b> and turn on traffic streaming (no elevation), or run ` +
+      `<code>lumra serve</code> elevated (admin / sudo) for the raw-socket tap.`;
+  } catch {}
+}
+
+document.getElementById("go").addEventListener("click", diagnose);
+document.getElementById("q").addEventListener("keydown", (e) => { if (e.key === "Enter") diagnose(); });
+document.getElementById("wgo").addEventListener("click", addWatch);
+document.getElementById("wq").addEventListener("keydown", (e) => { if (e.key === "Enter") addWatch(); });
+checkStatus();
+setInterval(checkStatus, 5000);
+loadWatches();
+setInterval(loadWatches, 3000);
+connect();
+</script>
+</body>
+</html>

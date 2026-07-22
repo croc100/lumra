@@ -33,6 +33,68 @@ chrome.webNavigation.onCompleted.addListener((details) => {
   chrome.action.setBadgeText({ tabId: details.tabId, text: "" });
 });
 
+// --- 1b. Live traffic sensor → local cockpit ---------------------------------
+//
+// When the user opts in (popup toggle, which also grants <all_urls>), we observe
+// every request the browser makes and stream it to `lumra serve` at
+// COCKPIT/api/observe. This is the privilege-free counterpart to the raw-socket
+// passive tap: the cockpit's live board fills from the browser, no elevation.
+// Observations are batched and sent only to localhost; nothing leaves the machine.
+
+const COCKPIT = "http://127.0.0.1:7777";
+const OBSERVE_URL = COCKPIT + "/api/observe";
+
+let streaming = false;
+let buffer = [];
+let flushTimer = null;
+
+chrome.storage.local.get("streaming", (r) => { streaming = !!r.streaming; });
+chrome.storage.onChanged.addListener((c) => {
+  if (c.streaming) { streaming = !!c.streaming.newValue; if (!streaming) buffer = []; }
+});
+
+// hostOf returns the hostname for an http(s) URL, or "" for anything we should
+// not report (the cockpit itself, localhost, extension pages, non-web schemes).
+function hostOf(url) {
+  try {
+    const u = new URL(url);
+    if (u.protocol !== "http:" && u.protocol !== "https:") return "";
+    const h = u.hostname;
+    if (h === "127.0.0.1" || h === "localhost" || h === "[::1]") return "";
+    return h;
+  } catch { return ""; }
+}
+
+function record(url, event, error) {
+  if (!streaming) return;
+  const domain = hostOf(url);
+  if (!domain) return;
+  buffer.push(error ? { domain, event, error } : { domain, event });
+  if (buffer.length >= 200) return flush();
+  if (!flushTimer) flushTimer = setTimeout(flush, 800);
+}
+
+function flush() {
+  clearTimeout(flushTimer);
+  flushTimer = null;
+  if (!buffer.length) return;
+  const batch = buffer;
+  buffer = [];
+  fetch(OBSERVE_URL, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(batch),
+  }).catch(() => { /* cockpit not running — drop this batch silently */ });
+}
+
+chrome.webRequest.onBeforeRequest.addListener(
+  (d) => record(d.url, "request"), { urls: ["<all_urls>"] });
+chrome.webRequest.onCompleted.addListener(
+  (d) => record(d.url, "response"), { urls: ["<all_urls>"] });
+chrome.webRequest.onErrorOccurred.addListener(
+  (d) => { if (d.error !== "net::ERR_ABORTED") record(d.url, "error", d.error); },
+  { urls: ["<all_urls>"] });
+
 // --- 2. Native-messaging bridge ---------------------------------------------
 
 // The popup asks the background to run a diagnosis; we forward to the native

@@ -40,6 +40,26 @@ $("run").addEventListener("click", () => {
   });
 });
 
+// --- Live traffic streaming toggle ------------------------------------------
+// Enabling requires the <all_urls> host permission (requested here so it is
+// granted from a user gesture) plus a stored flag the background reads.
+const streamBox = $("stream");
+const ALL_URLS = { origins: ["<all_urls>"] };
+
+chrome.storage.local.get("streaming", (r) => { streamBox.checked = !!r.streaming; });
+
+streamBox.addEventListener("change", () => {
+  if (streamBox.checked) {
+    chrome.permissions.request(ALL_URLS, (granted) => {
+      if (!granted) { streamBox.checked = false; return; }
+      chrome.storage.local.set({ streaming: true });
+    });
+  } else {
+    chrome.storage.local.set({ streaming: false });
+    chrome.permissions.remove(ALL_URLS, () => {});
+  }
+});
+
 function renderError(resp) {
   const el = $("err");
   el.style.display = "block";
